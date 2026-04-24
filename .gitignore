@@ -1,0 +1,50 @@
+# Secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+nginx/ssl/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+pip-log.txt
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+*.log
+
+# Data files (may contain PII)
+data/
+uploads/
+*.csv
+!tests/fixtures/*.csv
+!scripts/sample_data/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
