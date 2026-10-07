@@ -56,7 +56,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
 
 import numpy as np
 from rapidfuzz import fuzz
@@ -64,7 +63,6 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.core.exceptions import MatcherError
 from app.core.logging import get_logger
 from app.models import (
     BankStatement,
@@ -117,6 +115,7 @@ class MatcherResult:
 
 
 # ─── Scoring functions ─────────────────────────────────────────────────────────
+
 
 def score_amount(
     txn_amount: Decimal,
@@ -194,10 +193,13 @@ def score_description(desc_a: str | None, desc_b: str | None) -> float:
     if not desc_a or not desc_b:
         return 0.0
 
-    ratio = fuzz.token_set_ratio(
-        desc_a.upper()[:200],  # Truncate to avoid O(n²) on long strings
-        desc_b.upper()[:200],
-    ) / 100.0
+    ratio = (
+        fuzz.token_set_ratio(
+            desc_a.upper()[:200],  # Truncate to avoid O(n²) on long strings
+            desc_b.upper()[:200],
+        )
+        / 100.0
+    )
 
     return min(ratio / 0.95, 1.0)  # Linear scale, cap at 1.0
 
@@ -255,6 +257,7 @@ def build_match_reason(
 
 
 # ─── Matcher ───────────────────────────────────────────────────────────────────
+
 
 class ReconciliationMatcher:
     """
@@ -326,30 +329,41 @@ class ReconciliationMatcher:
 
                 s_date, delta_days = score_date(txn_date, bank_date, tolerance_days)
                 s_ref = score_reference(txn.get("reference"), bank.get("reference"))
-                s_desc = score_description(txn.get("description"), bank.get("description"))
+                s_desc = score_description(
+                    txn.get("description"), bank.get("description")
+                )
 
-                confidence = compute_confidence(s_amount, s_date, s_ref, s_desc, weights)
+                confidence = compute_confidence(
+                    s_amount, s_date, s_ref, s_desc, weights
+                )
 
                 if confidence < review_threshold:
                     continue
 
                 reason = build_match_reason(
-                    confidence, s_amount, s_date, s_ref, s_desc,
-                    delta_amount, delta_days
+                    confidence,
+                    s_amount,
+                    s_date,
+                    s_ref,
+                    s_desc,
+                    delta_amount,
+                    delta_days,
                 )
 
-                all_candidates.append(MatchCandidate(
-                    transaction_id=txn["id"],
-                    bank_statement_id=bank["id"],
-                    score_amount=s_amount,
-                    score_date=s_date,
-                    score_reference=s_ref,
-                    score_description=s_desc,
-                    confidence=confidence,
-                    amount_delta=delta_amount,
-                    date_delta_days=delta_days,
-                    match_reason=reason,
-                ))
+                all_candidates.append(
+                    MatchCandidate(
+                        transaction_id=txn["id"],
+                        bank_statement_id=bank["id"],
+                        score_amount=s_amount,
+                        score_date=s_date,
+                        score_reference=s_ref,
+                        score_description=s_desc,
+                        confidence=confidence,
+                        amount_delta=delta_amount,
+                        date_delta_days=delta_days,
+                        match_reason=reason,
+                    )
+                )
 
         # Sort by confidence descending, then assign greedily
         # (highest confidence pairs are locked in first)
@@ -407,6 +421,7 @@ class ReconciliationMatcher:
 
 
 # ─── Orchestration (DB layer) ──────────────────────────────────────────────────
+
 
 class ReconciliationOrchestrator:
     """
@@ -506,51 +521,57 @@ class ReconciliationOrchestrator:
         records: list[ReconciliationResult] = []
 
         for c in result.matched:
-            records.append(ReconciliationResult(
-                run_id=result.run_id,
-                transaction_id=c.transaction_id,
-                bank_statement_id=c.bank_statement_id,
-                status=MatchStatus.MATCHED,
-                confidence_score=Decimal(str(round(c.confidence, 4))),
-                score_amount=Decimal(str(round(c.score_amount, 4))),
-                score_date=Decimal(str(round(c.score_date, 4))),
-                score_reference=Decimal(str(round(c.score_reference, 4))),
-                score_description=Decimal(str(round(c.score_description, 4))),
-                match_reason=c.match_reason,
-                amount_delta=c.amount_delta,
-                date_delta_days=c.date_delta_days,
-            ))
+            records.append(
+                ReconciliationResult(
+                    run_id=result.run_id,
+                    transaction_id=c.transaction_id,
+                    bank_statement_id=c.bank_statement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence_score=Decimal(str(round(c.confidence, 4))),
+                    score_amount=Decimal(str(round(c.score_amount, 4))),
+                    score_date=Decimal(str(round(c.score_date, 4))),
+                    score_reference=Decimal(str(round(c.score_reference, 4))),
+                    score_description=Decimal(str(round(c.score_description, 4))),
+                    match_reason=c.match_reason,
+                    amount_delta=c.amount_delta,
+                    date_delta_days=c.date_delta_days,
+                )
+            )
 
         for c in result.review:
-            records.append(ReconciliationResult(
-                run_id=result.run_id,
-                transaction_id=c.transaction_id,
-                bank_statement_id=c.bank_statement_id,
-                status=MatchStatus.REVIEW,
-                confidence_score=Decimal(str(round(c.confidence, 4))),
-                score_amount=Decimal(str(round(c.score_amount, 4))),
-                score_date=Decimal(str(round(c.score_date, 4))),
-                score_reference=Decimal(str(round(c.score_reference, 4))),
-                score_description=Decimal(str(round(c.score_description, 4))),
-                match_reason=c.match_reason,
-                amount_delta=c.amount_delta,
-                date_delta_days=c.date_delta_days,
-            ))
+            records.append(
+                ReconciliationResult(
+                    run_id=result.run_id,
+                    transaction_id=c.transaction_id,
+                    bank_statement_id=c.bank_statement_id,
+                    status=MatchStatus.REVIEW,
+                    confidence_score=Decimal(str(round(c.confidence, 4))),
+                    score_amount=Decimal(str(round(c.score_amount, 4))),
+                    score_date=Decimal(str(round(c.score_date, 4))),
+                    score_reference=Decimal(str(round(c.score_reference, 4))),
+                    score_description=Decimal(str(round(c.score_description, 4))),
+                    match_reason=c.match_reason,
+                    amount_delta=c.amount_delta,
+                    date_delta_days=c.date_delta_days,
+                )
+            )
 
         # Unmatched transactions
         for txn_id in result.unmatched_transactions:
-            records.append(ReconciliationResult(
-                run_id=result.run_id,
-                transaction_id=txn_id,
-                bank_statement_id=None,
-                status=MatchStatus.UNMATCHED,
-                confidence_score=Decimal("0"),
-                score_amount=Decimal("0"),
-                score_date=Decimal("0"),
-                score_reference=Decimal("0"),
-                score_description=Decimal("0"),
-                match_reason="No matching bank entry found",
-            ))
+            records.append(
+                ReconciliationResult(
+                    run_id=result.run_id,
+                    transaction_id=txn_id,
+                    bank_statement_id=None,
+                    status=MatchStatus.UNMATCHED,
+                    confidence_score=Decimal("0"),
+                    score_amount=Decimal("0"),
+                    score_date=Decimal("0"),
+                    score_reference=Decimal("0"),
+                    score_description=Decimal("0"),
+                    match_reason="No matching bank entry found",
+                )
+            )
 
         self.db.add_all(records)
 
@@ -606,16 +627,26 @@ class ReconciliationOrchestrator:
         """Persist aggregate metrics for this run (used by drift detection)."""
         all_results = result.matched + result.review
         confidences = [c.confidence for c in all_results] if all_results else []
-        amount_deltas = [float(c.amount_delta) for c in all_results] if all_results else []
+        amount_deltas = (
+            [float(c.amount_delta) for c in all_results] if all_results else []
+        )
         date_deltas = [c.date_delta_days for c in all_results] if all_results else []
 
-        matched_amounts = sum(
-            abs(float(c.amount_delta)) for c in result.matched
-        ) if result.matched else 0
+        matched_amounts = (
+            sum(abs(float(c.amount_delta)) for c in result.matched)
+            if result.matched
+            else 0
+        )
 
         total = result.total_transactions
-        match_rate = Decimal(str(round(result.match_rate, 4))) if total > 0 else Decimal("0")
-        review_rate = Decimal(str(round(len(result.review) / total, 4))) if total > 0 else Decimal("0")
+        match_rate = (
+            Decimal(str(round(result.match_rate, 4))) if total > 0 else Decimal("0")
+        )
+        review_rate = (
+            Decimal(str(round(len(result.review) / total, 4)))
+            if total > 0
+            else Decimal("0")
+        )
 
         snapshot = ReconciliationSnapshot(
             run_id=result.run_id,
@@ -628,13 +659,35 @@ class ReconciliationOrchestrator:
             unmatched_count=len(result.unmatched_transactions),
             match_rate=match_rate,
             review_rate=review_rate,
-            avg_confidence=Decimal(str(round(float(np.mean(confidences)), 4))) if confidences else None,
-            p50_confidence=Decimal(str(round(float(np.percentile(confidences, 50)), 4))) if confidences else None,
-            p10_confidence=Decimal(str(round(float(np.percentile(confidences, 10)), 4))) if confidences else None,
+            avg_confidence=(
+                Decimal(str(round(float(np.mean(confidences)), 4)))
+                if confidences
+                else None
+            ),
+            p50_confidence=(
+                Decimal(str(round(float(np.percentile(confidences, 50)), 4)))
+                if confidences
+                else None
+            ),
+            p10_confidence=(
+                Decimal(str(round(float(np.percentile(confidences, 10)), 4)))
+                if confidences
+                else None
+            ),
             total_amount_matched=Decimal(str(round(matched_amounts, 4))),
-            avg_amount_delta=Decimal(str(round(float(np.mean(amount_deltas)), 4))) if amount_deltas else None,
-            avg_date_delta_days=Decimal(str(round(float(np.mean(date_deltas)), 2))) if date_deltas else None,
-            max_date_delta_days=max(abs(d) for d in date_deltas) if date_deltas else None,
+            avg_amount_delta=(
+                Decimal(str(round(float(np.mean(amount_deltas)), 4)))
+                if amount_deltas
+                else None
+            ),
+            avg_date_delta_days=(
+                Decimal(str(round(float(np.mean(date_deltas)), 2)))
+                if date_deltas
+                else None
+            ),
+            max_date_delta_days=(
+                max(abs(d) for d in date_deltas) if date_deltas else None
+            ),
             run_duration_seconds=Decimal(str(round(result.duration_seconds, 3))),
         )
         self.db.add(snapshot)

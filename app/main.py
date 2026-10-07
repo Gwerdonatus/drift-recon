@@ -55,11 +55,12 @@ async def lifespan(app: FastAPI):
     )
 
     # Warm up DB connection pool
-    engine = get_engine()
+    get_engine()
     log.info("database_pool_initialized")
 
     # Start background scheduler
     from app.workers.scheduler import start_scheduler, stop_scheduler
+
     scheduler = start_scheduler()
 
     log.info("application_ready")
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
         start = time.perf_counter()
 
         import structlog
+
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -177,6 +179,7 @@ def create_app() -> FastAPI:
     # ── Routes ────────────────────────────────────────────────────────────────
 
     from app.api.v1.router import router as v1_router
+
     app.include_router(v1_router, prefix="/api/v1")
 
     # Health endpoint (no auth — needed by load balancer / Docker healthcheck)

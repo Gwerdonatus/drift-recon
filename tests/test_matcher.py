@@ -34,6 +34,7 @@ from app.services.matcher import (
 
 # ── Score function tests ───────────────────────────────────────────────────────
 
+
 class TestScoreAmount:
     def test_exact_match(self):
         score, delta = score_amount(Decimal("1000.00"), Decimal("1000.00"), 0.01)
@@ -157,6 +158,7 @@ class TestScoreDescription:
 
 # ── Matcher integration tests ──────────────────────────────────────────────────
 
+
 def _txn(external_id, amount, ref="REF", date_str="2024-01-15", desc="Payment"):
     return {
         "id": uuid.uuid4(),
@@ -273,9 +275,7 @@ class TestMatcher:
         # composite = 0.5*1.0 + 0.25*0.7 + 0.15*0.0 + 0.10*~0.9 = 0.5+0.175+0+0.09 = 0.765
         # Actually might be matched — depends on description score
         # Just verify it lands in matched or review (not unmatched)
-        is_resolved = (
-            len(result.matched) > 0 or len(result.review) > 0
-        )
+        is_resolved = len(result.matched) > 0 or len(result.review) > 0
         assert is_resolved
 
     def test_multiple_exact_matches(self, matcher):

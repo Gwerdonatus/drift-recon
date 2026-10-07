@@ -93,9 +93,7 @@ async def get_run_results(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(ReconciliationResult).where(
-        ReconciliationResult.run_id == run_id
-    )
+    query = select(ReconciliationResult).where(ReconciliationResult.run_id == run_id)
     if status_filter:
         query = query.where(ReconciliationResult.status == status_filter)
     query = query.limit(limit).offset(offset)
@@ -137,7 +135,9 @@ async def list_snapshots(
             unmatched_count=s.unmatched_count,
             match_rate=float(s.match_rate),
             avg_confidence=float(s.avg_confidence) if s.avg_confidence else None,
-            run_duration_seconds=float(s.run_duration_seconds) if s.run_duration_seconds else None,
+            run_duration_seconds=(
+                float(s.run_duration_seconds) if s.run_duration_seconds else None
+            ),
         )
         for s in snapshots
     ]
@@ -149,7 +149,7 @@ async def list_snapshots(
 )
 async def review_result(
     result_id: uuid.UUID,
-    verdict: str = Query(..., regex="^(matched|unmatched|escalated)$"),
+    verdict: str = Query(..., pattern="^(matched|unmatched|escalated)$"),
     reviewed_by: str = Query(..., min_length=1, max_length=100),
     db: AsyncSession = Depends(get_db),
 ):
@@ -161,6 +161,7 @@ async def review_result(
     result = await db.get(ReconciliationResult, result_id)
     if not result:
         from app.core.exceptions import ResourceNotFoundError
+
         raise ResourceNotFoundError("ReconciliationResult", str(result_id))
 
     result.human_reviewed = True

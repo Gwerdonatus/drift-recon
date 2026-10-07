@@ -36,14 +36,20 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 )
 async def upload_transactions(
     file: UploadFile = File(..., description="CSV file of transactions"),
-    source: str = Form(..., min_length=1, max_length=100, description="Source system name, e.g. 'erp' or 'pos'"),
+    source: str = Form(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Source system name, e.g. 'erp' or 'pos'",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     content = await file.read()
 
     if len(content) > MAX_UPLOAD_SIZE:
         from fastapi import HTTPException
-        raise HTTPException(status_code=413, detail=f"File exceeds 50MB limit.")
+
+        raise HTTPException(status_code=413, detail="File exceeds 50MB limit.")
 
     return await ingest_transactions(db=db, file_content=content, source=source)
 
@@ -56,13 +62,21 @@ async def upload_transactions(
 )
 async def upload_bank_statements(
     file: UploadFile = File(..., description="Bank statement CSV"),
-    bank_name: str = Form(..., min_length=1, max_length=100, description="Bank identifier, e.g. 'chase' or 'wells_fargo'"),
+    bank_name: str = Form(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Bank identifier, e.g. 'chase' or 'wells_fargo'",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     content = await file.read()
 
     if len(content) > MAX_UPLOAD_SIZE:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=413, detail="File exceeds 50MB limit.")
 
-    return await ingest_bank_statements(db=db, file_content=content, bank_name=bank_name)
+    return await ingest_bank_statements(
+        db=db, file_content=content, bank_name=bank_name
+    )

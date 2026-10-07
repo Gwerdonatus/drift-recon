@@ -20,12 +20,9 @@ import hashlib
 import io
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Any
 
 import pandas as pd
 from pydantic import ValidationError
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,7 +34,11 @@ from app.models import (
     Transaction,
     TransactionStatus,
 )
-from app.schemas import BankStatementIngestionRow, IngestionResponse, TransactionIngestionRow
+from app.schemas import (
+    BankStatementIngestionRow,
+    IngestionResponse,
+    TransactionIngestionRow,
+)
 
 log = get_logger(__name__)
 
@@ -67,10 +68,12 @@ BANK_COLUMN_MAP = {
 }
 
 
-def _normalize_columns(df: pd.DataFrame, column_map: dict[str, list[str]]) -> pd.DataFrame:
+def _normalize_columns(
+    df: pd.DataFrame, column_map: dict[str, list[str]]
+) -> pd.DataFrame:
     """Rename dataframe columns to canonical names using the mapping."""
     df.columns = [c.lower().strip().replace(" ", "_") for c in df.columns]
-    rename = {}
+    rename: dict[str, str] = {}
     for canonical, variants in column_map.items():
         for v in variants:
             if v in df.columns and canonical not in rename.values():
@@ -123,40 +126,42 @@ async def ingest_transactions(
             validated = TransactionIngestionRow(**row_dict)
         except (ValidationError, Exception) as e:
             quarantined += 1
-            quarantine_rows.append({
-                "ingestion_batch_id": batch_id,
-                "source_type": "transaction",
-                "row_index": int(str(idx)),
-                "raw_data": row_dict,
-                "failure_reason": str(e),
-            })
+            quarantine_rows.append(
+                {
+                    "ingestion_batch_id": batch_id,
+                    "source_type": "transaction",
+                    "row_index": int(str(idx)),
+                    "raw_data": row_dict,
+                    "failure_reason": str(e),
+                }
+            )
             errors.append({"row": int(str(idx)), "error": str(e)})
             continue
 
-        rows_to_insert.append({
-            "id": uuid.uuid4(),
-            "external_id": validated.external_id,
-            "source": source,
-            "transaction_date": validated.transaction_date,
-            "amount": validated.amount,
-            "currency": validated.currency,
-            "reference": validated.reference,
-            "description": validated.description,
-            "counterparty": validated.counterparty,
-            "status": TransactionStatus.PENDING,
-            "raw_data": row_dict,
-            "ingestion_batch_id": batch_id,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        })
+        rows_to_insert.append(
+            {
+                "id": uuid.uuid4(),
+                "external_id": validated.external_id,
+                "source": source,
+                "transaction_date": validated.transaction_date,
+                "amount": validated.amount,
+                "currency": validated.currency,
+                "reference": validated.reference,
+                "description": validated.description,
+                "counterparty": validated.counterparty,
+                "status": TransactionStatus.PENDING,
+                "raw_data": row_dict,
+                "ingestion_batch_id": batch_id,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
 
     # Bulk upsert with conflict skip (idempotency)
     # ON CONFLICT DO NOTHING = skip duplicates without erroring
     if rows_to_insert:
         stmt = pg_insert(Transaction).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_transaction_external_source"
-        )
+        stmt = stmt.on_conflict_do_nothing(constraint="uq_transaction_external_source")
         result = await db.execute(stmt)
         # rowcount = rows actually inserted (excludes skipped duplicates)
         inserted = result.rowcount if result.rowcount >= 0 else len(rows_to_insert)
@@ -164,9 +169,7 @@ async def ingest_transactions(
         accepted = inserted
 
     if quarantine_rows:
-        await db.execute(
-            pg_insert(QuarantinedRecord).values(quarantine_rows)
-        )
+        await db.execute(pg_insert(QuarantinedRecord).values(quarantine_rows))
 
     log.info(
         "ingestion_complete",
@@ -221,48 +224,48 @@ async def ingest_bank_statements(
             validated = BankStatementIngestionRow(**row_dict)
         except (ValidationError, Exception) as e:
             quarantined += 1
-            quarantine_rows.append({
-                "ingestion_batch_id": batch_id,
-                "source_type": "bank",
-                "row_index": int(str(idx)),
-                "raw_data": row_dict,
-                "failure_reason": str(e),
-            })
+            quarantine_rows.append(
+                {
+                    "ingestion_batch_id": batch_id,
+                    "source_type": "bank",
+                    "row_index": int(str(idx)),
+                    "raw_data": row_dict,
+                    "failure_reason": str(e),
+                }
+            )
             errors.append({"row": int(str(idx)), "error": str(e)})
             continue
 
-        rows_to_insert.append({
-            "id": uuid.uuid4(),
-            "external_id": validated.external_id,
-            "bank_name": bank_name,
-            "value_date": validated.value_date,
-            "posting_date": validated.posting_date,
-            "amount": validated.amount,
-            "currency": validated.currency,
-            "reference": validated.reference,
-            "description": validated.description,
-            "counterparty": validated.counterparty,
-            "status": TransactionStatus.PENDING,
-            "raw_data": row_dict,
-            "ingestion_batch_id": batch_id,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        })
+        rows_to_insert.append(
+            {
+                "id": uuid.uuid4(),
+                "external_id": validated.external_id,
+                "bank_name": bank_name,
+                "value_date": validated.value_date,
+                "posting_date": validated.posting_date,
+                "amount": validated.amount,
+                "currency": validated.currency,
+                "reference": validated.reference,
+                "description": validated.description,
+                "counterparty": validated.counterparty,
+                "status": TransactionStatus.PENDING,
+                "raw_data": row_dict,
+                "ingestion_batch_id": batch_id,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
 
     if rows_to_insert:
         stmt = pg_insert(BankStatement).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_bank_external_bank"
-        )
+        stmt = stmt.on_conflict_do_nothing(constraint="uq_bank_external_bank")
         result = await db.execute(stmt)
         inserted = result.rowcount if result.rowcount >= 0 else len(rows_to_insert)
         duplicate_skipped = len(rows_to_insert) - inserted
         accepted = inserted
 
     if quarantine_rows:
-        await db.execute(
-            pg_insert(QuarantinedRecord).values(quarantine_rows)
-        )
+        await db.execute(pg_insert(QuarantinedRecord).values(quarantine_rows))
 
     return IngestionResponse(
         batch_id=batch_id,

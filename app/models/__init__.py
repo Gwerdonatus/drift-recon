@@ -38,19 +38,20 @@ from app.database import Base
 
 # ─── Enums ─────────────────────────────────────────────────────────────────────
 
+
 class TransactionStatus(str, Enum):
     PENDING = "pending"
     MATCHED = "matched"
     UNMATCHED = "unmatched"
-    REVIEW = "review"           # Confidence between review and match threshold
-    QUARANTINED = "quarantined" # Failed validation during ingestion
+    REVIEW = "review"  # Confidence between review and match threshold
+    QUARANTINED = "quarantined"  # Failed validation during ingestion
 
 
 class MatchStatus(str, Enum):
-    MATCHED = "matched"         # Confidence >= MATCH_CONFIDENCE_THRESHOLD
-    REVIEW = "review"           # Between REVIEW and MATCH thresholds
-    UNMATCHED = "unmatched"     # Below REVIEW threshold
-    DUPLICATE = "duplicate"     # Same transaction matched twice (data quality issue)
+    MATCHED = "matched"  # Confidence >= MATCH_CONFIDENCE_THRESHOLD
+    REVIEW = "review"  # Between REVIEW and MATCH thresholds
+    UNMATCHED = "unmatched"  # Below REVIEW threshold
+    DUPLICATE = "duplicate"  # Same transaction matched twice (data quality issue)
 
 
 class DriftEventType(str, Enum):
@@ -63,12 +64,13 @@ class DriftEventType(str, Enum):
 
 
 class DriftSeverity(str, Enum):
-    LOW = "low"         # 2–2.5 sigma
-    MEDIUM = "medium"   # 2.5–3 sigma
-    HIGH = "high"       # > 3 sigma
+    LOW = "low"  # 2–2.5 sigma
+    MEDIUM = "medium"  # 2.5–3 sigma
+    HIGH = "high"  # > 3 sigma
 
 
 # ─── Mixins ────────────────────────────────────────────────────────────────────
+
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
@@ -94,15 +96,19 @@ class SoftDeleteMixin:
 
 # ─── Core Tables ───────────────────────────────────────────────────────────────
 
+
 class Transaction(Base, TimestampMixin, SoftDeleteMixin):
     """
     Internal transaction records (from your system of record).
     These are what you're trying to reconcile against bank statements.
     """
+
     __tablename__ = "transactions"
     __table_args__ = (
         # Idempotency: external_id must be unique per source
-        UniqueConstraint("external_id", "source", name="uq_transaction_external_source"),
+        UniqueConstraint(
+            "external_id", "source", name="uq_transaction_external_source"
+        ),
         # Covering index for the most common reconciliation lookup
         Index("ix_transactions_date_amount", "transaction_date", "amount"),
         Index("ix_transactions_status", "status"),
@@ -115,7 +121,9 @@ class Transaction(Base, TimestampMixin, SoftDeleteMixin):
     )
     # Idempotency key: the ID from your source system
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    source: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g., "erp", "pos"
+    source: Mapped[str] = mapped_column(
+        String(100), nullable=False
+    )  # e.g., "erp", "pos"
 
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
@@ -145,6 +153,7 @@ class BankStatement(Base, TimestampMixin, SoftDeleteMixin):
     Bank statement entries (from bank CSV or API feed).
     The external reference against which transactions are matched.
     """
+
     __tablename__ = "bank_statements"
     __table_args__ = (
         UniqueConstraint("external_id", "bank_name", name="uq_bank_external_bank"),
@@ -184,19 +193,18 @@ class BankStatement(Base, TimestampMixin, SoftDeleteMixin):
 class ReconciliationResult(Base, TimestampMixin):
     """
     Output of the matching engine for a single transaction–statement pair.
-    
+
     Stores confidence scores broken down by component so we can later
     diagnose which factor caused a low-confidence match or miss.
     """
+
     __tablename__ = "reconciliation_results"
     __table_args__ = (
         Index("ix_recon_run_id", "run_id"),
         Index("ix_recon_status", "status"),
         Index("ix_recon_confidence", "confidence_score"),
         # One transaction can only be matched once (prevent duplicate matches)
-        UniqueConstraint(
-            "transaction_id", "run_id", name="uq_recon_transaction_run"
-        ),
+        UniqueConstraint("transaction_id", "run_id", name="uq_recon_transaction_run"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -217,10 +225,18 @@ class ReconciliationResult(Base, TimestampMixin):
     confidence_score: Mapped[Decimal] = mapped_column(
         Numeric(5, 4), nullable=False, default=0
     )
-    score_amount: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
-    score_date: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
-    score_reference: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
-    score_description: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
+    score_amount: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
+    score_date: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
+    score_reference: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
+    score_description: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
 
     # Human-readable explanation for the match decision
     match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -233,7 +249,9 @@ class ReconciliationResult(Base, TimestampMixin):
     human_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     human_verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     transaction: Mapped["Transaction | None"] = relationship(
         "Transaction", back_populates="reconciliation_results"
@@ -246,11 +264,12 @@ class ReconciliationResult(Base, TimestampMixin):
 class ReconciliationSnapshot(Base, TimestampMixin):
     """
     Aggregate statistics for each reconciliation run.
-    
+
     This is the historical record that drift detection analyzes.
     Every run appends one row here — never update, only insert.
     Think of it as an append-only event log.
     """
+
     __tablename__ = "reconciliation_snapshots"
     __table_args__ = (
         Index("ix_snapshot_run_date", "run_date"),
@@ -272,8 +291,12 @@ class ReconciliationSnapshot(Base, TimestampMixin):
     unmatched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Rate metrics (stored for fast access — derived from counts above)
-    match_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
-    review_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=0)
+    match_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
+    review_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0
+    )
 
     # Distribution metrics
     avg_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
@@ -281,16 +304,26 @@ class ReconciliationSnapshot(Base, TimestampMixin):
     p10_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
 
     # Amount metrics
-    total_amount_matched: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
-    total_amount_unmatched: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
-    avg_amount_delta: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    total_amount_matched: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
+    total_amount_unmatched: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
+    avg_amount_delta: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4), nullable=True
+    )
 
     # Timing metrics
-    avg_date_delta_days: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    avg_date_delta_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2), nullable=True
+    )
     max_date_delta_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Run performance
-    run_duration_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    run_duration_seconds: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 3), nullable=True
+    )
 
     drift_events: Mapped[list["DriftEvent"]] = relationship(
         "DriftEvent", back_populates="snapshot"
@@ -300,11 +333,12 @@ class ReconciliationSnapshot(Base, TimestampMixin):
 class DriftEvent(Base, TimestampMixin):
     """
     A detected anomaly in reconciliation performance.
-    
+
     Created by the DriftAnalyzer when a snapshot's metrics deviate
     significantly from historical baseline (z-score based detection).
     Each event includes a root cause hypothesis and supporting evidence.
     """
+
     __tablename__ = "drift_events"
     __table_args__ = (
         Index("ix_drift_snapshot_id", "snapshot_id"),
@@ -335,7 +369,9 @@ class DriftEvent(Base, TimestampMixin):
     supporting_evidence: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Resolution tracking
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     snapshot: Mapped["ReconciliationSnapshot"] = relationship(
@@ -348,6 +384,7 @@ class QuarantinedRecord(Base, TimestampMixin):
     Records that failed validation during ingestion.
     Dead-letter pattern: don't discard bad data, park it for investigation.
     """
+
     __tablename__ = "quarantined_records"
     __table_args__ = (
         Index("ix_quarantine_batch", "ingestion_batch_id"),
@@ -359,10 +396,14 @@ class QuarantinedRecord(Base, TimestampMixin):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     ingestion_batch_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # "transaction" | "bank"
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # "transaction" | "bank"
     row_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     failure_reason: Mapped[str] = mapped_column(Text, nullable=False)
 
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

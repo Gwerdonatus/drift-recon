@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 from app.core.logging import get_logger
@@ -30,6 +29,7 @@ log = get_logger(__name__)
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 
@@ -46,8 +46,8 @@ def get_engine() -> AsyncEngine:
             pool_size=settings.DATABASE_POOL_SIZE,
             max_overflow=settings.DATABASE_MAX_OVERFLOW,
             pool_timeout=settings.DATABASE_POOL_TIMEOUT,
-            pool_pre_ping=True,      # Detect stale connections before use
-            pool_recycle=3600,       # Recycle connections after 1 hour
+            pool_pre_ping=True,  # Detect stale connections before use
+            pool_recycle=3600,  # Recycle connections after 1 hour
             echo=settings.is_development,
         )
         log.info(

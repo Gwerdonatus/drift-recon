@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_api_key
@@ -127,6 +127,7 @@ async def resolve_drift_event(
     event = await db.get(DriftEvent, event_id)
     if not event:
         from app.core.exceptions import ResourceNotFoundError
+
         raise ResourceNotFoundError("DriftEvent", str(event_id))
 
     event.resolved_at = datetime.now(timezone.utc)

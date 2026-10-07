@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from decimal import Decimal
 from typing import AsyncGenerator
@@ -16,15 +15,8 @@ from app.models import BankStatement, Transaction, TransactionStatus
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://recon_user:5ffaaacdfd7548a99f5e5dda22344cc6@localhost:5433/recon_test",
+    "postgresql+asyncpg://recon_user:testpassword@localhost:5432/recon_test",
 )
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="session")
@@ -81,6 +73,7 @@ def make_transaction(
 ) -> Transaction:
     from datetime import date
     import uuid
+
     return Transaction(
         id=uuid.uuid4(),
         external_id=external_id,
@@ -105,6 +98,7 @@ def make_bank_entry(
 ) -> BankStatement:
     from datetime import date
     import uuid
+
     return BankStatement(
         id=uuid.uuid4(),
         external_id=external_id,

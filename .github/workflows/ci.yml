@@ -1,7 +1,7 @@
 # CI/CD Pipeline
 #
 # Triggers:
-#   - Push to main → run tests + build image + deploy to VPS
+#   - Push to main → run tests + build images
 #   - Push to any PR branch → run tests only (no deploy)
 #   - Manual dispatch → run tests + optional deploy
 #
@@ -32,7 +32,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # GHCR requires lowercase image names.
+  IMAGE_NAME: gwerdonatus/drift-recon
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -211,7 +212,10 @@ jobs:
     name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.deploy == 'true' &&
+      github.ref == 'refs/heads/main'
     environment: production  # Requires manual approval if configured in GitHub
 
     steps:

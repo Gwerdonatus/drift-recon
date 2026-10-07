@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
+
 def _make_settings(**overrides):
     s = MagicMock()
     s.DATABASE_URL = "postgresql+asyncpg://user:pass@localhost/testdb"
@@ -36,7 +37,7 @@ def _make_settings(**overrides):
 def _mock_db_context(mock_db=None):
     """Return a context manager mock that yields mock_db."""
     if mock_db is None:
-        mock_db = AsyncMock()
+        mock_db = MagicMock()
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_db)
     ctx.__aexit__ = AsyncMock(return_value=False)
@@ -44,6 +45,7 @@ def _mock_db_context(mock_db=None):
 
 
 # ── _ensure_apscheduler_table ──────────────────────────────────────────────────
+
 
 class TestEnsureApschedulerTable:
 
@@ -103,6 +105,7 @@ class TestEnsureApschedulerTable:
 
 
 # ── start_scheduler ────────────────────────────────────────────────────────────
+
 
 class TestStartScheduler:
 
@@ -168,9 +171,7 @@ class TestStartScheduler:
     def test_invalid_reconciliation_cron_raises(self, mock_get_settings, _ensure):
         from app.workers.scheduler import start_scheduler
 
-        mock_get_settings.return_value = _make_settings(
-            RECONCILIATION_CRON="bad cron"
-        )
+        mock_get_settings.return_value = _make_settings(RECONCILIATION_CRON="bad cron")
         with pytest.raises(ValueError, match="Invalid cron string"):
             start_scheduler()
 
@@ -179,9 +180,7 @@ class TestStartScheduler:
     def test_invalid_drift_cron_raises(self, mock_get_settings, _ensure):
         from app.workers.scheduler import start_scheduler
 
-        mock_get_settings.return_value = _make_settings(
-            DRIFT_CHECK_CRON="* * *"
-        )
+        mock_get_settings.return_value = _make_settings(DRIFT_CHECK_CRON="* * *")
         with pytest.raises(ValueError, match="Invalid cron string"):
             start_scheduler()
 
@@ -209,6 +208,7 @@ class TestStartScheduler:
 
 # ── stop_scheduler ─────────────────────────────────────────────────────────────
 
+
 class TestStopScheduler:
 
     def test_calls_shutdown_no_wait(self):
@@ -220,6 +220,7 @@ class TestStopScheduler:
 
 
 # ── reconciliation_job ─────────────────────────────────────────────────────────
+
 
 class TestReconciliationJob:
 
@@ -241,9 +242,10 @@ class TestReconciliationJob:
         mock_orchestrator.run.return_value = mock_result
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.matcher.ReconciliationOrchestrator",
-                   return_value=mock_orchestrator):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.matcher.ReconciliationOrchestrator",
+            return_value=mock_orchestrator,
+        ):
             await reconciliation_job()
 
         mock_orchestrator.run.assert_called_once_with(source_name="default")
@@ -273,9 +275,10 @@ class TestReconciliationJob:
         mock_orchestrator.run.return_value = mock_result
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.matcher.ReconciliationOrchestrator",
-                   return_value=mock_orchestrator):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.matcher.ReconciliationOrchestrator",
+            return_value=mock_orchestrator,
+        ):
             await reconciliation_job()
 
         mock_send_alert.assert_called_once()
@@ -305,9 +308,10 @@ class TestReconciliationJob:
         mock_orchestrator.run.return_value = mock_result
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.matcher.ReconciliationOrchestrator",
-                   return_value=mock_orchestrator):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.matcher.ReconciliationOrchestrator",
+            return_value=mock_orchestrator,
+        ):
             await reconciliation_job()
 
         mock_send_alert.assert_not_called()
@@ -336,9 +340,10 @@ class TestReconciliationJob:
         mock_orchestrator.run.return_value = mock_result
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.matcher.ReconciliationOrchestrator",
-                   return_value=mock_orchestrator):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.matcher.ReconciliationOrchestrator",
+            return_value=mock_orchestrator,
+        ):
             await reconciliation_job()
 
         mock_send_alert.assert_not_called()
@@ -356,6 +361,7 @@ class TestReconciliationJob:
 
 # ── drift_check_job ────────────────────────────────────────────────────────────
 
+
 class TestDriftCheckJob:
 
     @pytest.mark.asyncio
@@ -366,9 +372,9 @@ class TestDriftCheckJob:
         mock_analyzer.analyze_latest.return_value = []
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()
 
         mock_analyzer.analyze_latest.assert_called_once_with(source_name="default")
@@ -393,9 +399,9 @@ class TestDriftCheckJob:
         mock_analyzer.analyze_latest.return_value = [high_event]
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()
 
         mock_send_alert.assert_called_once()
@@ -418,9 +424,9 @@ class TestDriftCheckJob:
         mock_analyzer.analyze_latest.return_value = [low_event]
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()
 
         mock_send_alert.assert_not_called()
@@ -437,9 +443,9 @@ class TestDriftCheckJob:
         )
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()  # Must not raise
 
     @pytest.mark.asyncio
@@ -450,9 +456,9 @@ class TestDriftCheckJob:
         mock_analyzer.analyze_latest.side_effect = RuntimeError("unexpected")
         ctx, _ = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()  # Must not raise
 
     @pytest.mark.asyncio
@@ -467,15 +473,16 @@ class TestDriftCheckJob:
         mock_analyzer.analyze_latest.return_value = events
         ctx, mock_db = _mock_db_context()
 
-        with patch("app.database.get_db_context", return_value=ctx), \
-             patch("app.services.drift_analyzer.DriftAnalyzer",
-                   return_value=mock_analyzer):
+        with patch("app.database.get_db_context", return_value=ctx), patch(
+            "app.services.drift_analyzer.DriftAnalyzer", return_value=mock_analyzer
+        ):
             await drift_check_job()
 
         assert mock_db.add.call_count == 2
 
 
 # ── send_alert ─────────────────────────────────────────────────────────────────
+
 
 class TestSendAlert:
 

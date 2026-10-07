@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -19,10 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 # ─── Shared base ───────────────────────────────────────────────────────────────
 
+
 class APIModel(BaseModel):
     """Base for all API schemas: strict mode, no extra fields."""
+
     model_config = ConfigDict(
-        from_attributes=True,    # Allow ORM model -> schema conversion
+        from_attributes=True,  # Allow ORM model -> schema conversion
         str_strip_whitespace=True,
         populate_by_name=True,
     )
@@ -30,11 +31,13 @@ class APIModel(BaseModel):
 
 # ─── Ingestion ─────────────────────────────────────────────────────────────────
 
+
 class TransactionIngestionRow(APIModel):
     """Single row from a transaction CSV upload."""
+
     external_id: str = Field(..., min_length=1, max_length=255)
     transaction_date: date
-    amount: Decimal = Field(..., ne=0)
+    amount: Decimal
     currency: str = Field(default="USD", min_length=3, max_length=3)
     reference: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
@@ -50,15 +53,19 @@ class TransactionIngestionRow(APIModel):
     def parse_amount(cls, v: Any) -> Decimal:
         if isinstance(v, str):
             v = v.replace(",", "").strip()
-        return Decimal(str(v))
+        amount = Decimal(str(v))
+        if amount == 0:
+            raise ValueError("amount must not be zero")
+        return amount
 
 
 class BankStatementIngestionRow(APIModel):
     """Single row from a bank statement CSV upload."""
+
     external_id: str = Field(..., min_length=1, max_length=255)
     value_date: date
     posting_date: date | None = None
-    amount: Decimal = Field(..., ne=0)
+    amount: Decimal
     currency: str = Field(default="USD", min_length=3, max_length=3)
     reference: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
@@ -74,7 +81,10 @@ class BankStatementIngestionRow(APIModel):
     def parse_amount(cls, v: Any) -> Decimal:
         if isinstance(v, str):
             v = v.replace(",", "").strip()
-        return Decimal(str(v))
+        amount = Decimal(str(v))
+        if amount == 0:
+            raise ValueError("amount must not be zero")
+        return amount
 
 
 class IngestionResponse(APIModel):
@@ -88,6 +98,7 @@ class IngestionResponse(APIModel):
 
 
 # ─── Reconciliation ────────────────────────────────────────────────────────────
+
 
 class ReconciliationRunRequest(APIModel):
     source_name: str = Field(..., min_length=1, max_length=100)
@@ -169,6 +180,7 @@ class ReconciliationRunResponse(APIModel):
 
 # ─── Snapshots & Drift ─────────────────────────────────────────────────────────
 
+
 class SnapshotOut(APIModel):
     id: uuid.UUID
     run_id: str
@@ -213,8 +225,9 @@ class DriftSummary(APIModel):
 
 # ─── Health ────────────────────────────────────────────────────────────────────
 
+
 class HealthCheck(APIModel):
-    status: str   # "healthy" | "degraded" | "unhealthy"
+    status: str  # "healthy" | "degraded" | "unhealthy"
     version: str
     environment: str
     checks: dict[str, dict]

@@ -6,7 +6,6 @@ Tests the full stack: HTTP → FastAPI → service → database.
 from __future__ import annotations
 
 import io
-import textwrap
 
 import pytest
 
@@ -77,7 +76,11 @@ class TestTransactionIngestion:
 
         r1 = await client.post("/api/v1/ingest/transactions", **params)
         # Reset the BytesIO
-        params["files"]["file"] = ("transactions.csv", io.BytesIO(csv_bytes), "text/csv")
+        params["files"]["file"] = (
+            "transactions.csv",
+            io.BytesIO(csv_bytes),
+            "text/csv",
+        )
         r2 = await client.post("/api/v1/ingest/transactions", **params)
 
         assert r1.status_code == 202

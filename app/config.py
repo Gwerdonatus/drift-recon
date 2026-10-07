@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 from functools import lru_cache
-from typing import List
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -97,24 +96,18 @@ class Settings(BaseSettings):
             + self.WEIGHT_DESCRIPTION
         )
         if abs(total - 1.0) > 0.001:
-            raise ValueError(
-                f"Matching weights must sum to 1.0, got {total:.3f}"
-            )
+            raise ValueError(f"Matching weights must sum to 1.0, got {total:.3f}")
         return self
 
     @model_validator(mode="after")
     def build_hashed_api_keys(self) -> "Settings":
         raw_keys = [k.strip() for k in self.VALID_API_KEYS.split(",") if k.strip()]
-        self._hashed_api_keys = {
-            self._hash_key(k) for k in raw_keys
-        }
+        self._hashed_api_keys = {self._hash_key(k) for k in raw_keys}
         return self
 
     def _hash_key(self, raw_key: str) -> str:
         """Hash an API key with HMAC-SHA256 + salt for constant-time comparison."""
-        return hashlib.sha256(
-            f"{self.API_KEY_SALT}{raw_key}".encode()
-        ).hexdigest()
+        return hashlib.sha256(f"{self.API_KEY_SALT}{raw_key}".encode()).hexdigest()
 
     def verify_api_key(self, raw_key: str) -> bool:
         """Constant-time API key verification."""
@@ -142,4 +135,4 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     """Cached settings singleton — loaded once at startup."""
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

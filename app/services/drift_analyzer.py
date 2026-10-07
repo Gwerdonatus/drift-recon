@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 from sqlalchemy import and_, select
@@ -186,7 +188,7 @@ class DriftAnalyzer:
             elif metric_name == "match_rate" and z_score > 0:
                 resolved_event_type = DriftEventType.MATCH_RATE_SPIKE
             else:
-                resolved_event_type = event_type
+                resolved_event_type = cast(DriftEventType, event_type)
 
             hypothesis = self._generate_hypothesis(
                 metric_name=metric_name,
@@ -288,9 +290,12 @@ class DriftAnalyzer:
 
         direction_key = "low" if z_score < 0 else "high"
         metric_hypos = hypotheses.get(metric_name, {})
-        parts = metric_hypos.get(direction_key) or metric_hypos.get("both", [
-            f"{metric_name} {direction} significantly (z={z_score:.2f}σ). Manual investigation required."
-        ])
+        parts = metric_hypos.get(direction_key) or metric_hypos.get(
+            "both",
+            [
+                f"{metric_name} {direction} significantly (z={z_score:.2f}σ). Manual investigation required."
+            ],
+        )
 
         return " ".join(parts)
 
@@ -298,7 +303,7 @@ class DriftAnalyzer:
         self,
         metric_name: str,
         current_snapshot: ReconciliationSnapshot,
-        baseline_snapshots: list[ReconciliationSnapshot],
+        baseline_snapshots: Sequence[ReconciliationSnapshot],
     ) -> dict:
         """Collect supporting data points to include with the drift event."""
         baseline_values = [
@@ -328,7 +333,9 @@ class DriftAnalyzer:
         from sqlalchemy import func
         from app.models import DriftEvent as DE
 
-        lookback = datetime.now(timezone.utc) - timedelta(days=self.settings.DRIFT_LOOKBACK_DAYS)
+        lookback = datetime.now(timezone.utc) - timedelta(
+            days=self.settings.DRIFT_LOOKBACK_DAYS
+        )
 
         # Latest match rate
         latest_q = (
@@ -341,26 +348,20 @@ class DriftAnalyzer:
         latest = latest_result.scalar_one_or_none()
 
         # Baseline match rate (avg of lookback)
-        baseline_q = (
-            select(func.avg(ReconciliationSnapshot.match_rate))
-            .where(
-                and_(
-                    ReconciliationSnapshot.source_name == source_name,
-                    ReconciliationSnapshot.run_date >= lookback,
-                )
+        baseline_q = select(func.avg(ReconciliationSnapshot.match_rate)).where(
+            and_(
+                ReconciliationSnapshot.source_name == source_name,
+                ReconciliationSnapshot.run_date >= lookback,
             )
         )
         baseline_result = await self.db.execute(baseline_q)
         baseline_mean = baseline_result.scalar()
 
         # Count drift events
-        events_q = (
-            select(ReconciliationSnapshot.id)
-            .where(
-                and_(
-                    ReconciliationSnapshot.source_name == source_name,
-                    ReconciliationSnapshot.run_date >= lookback,
-                )
+        events_q = select(ReconciliationSnapshot.id).where(
+            and_(
+                ReconciliationSnapshot.source_name == source_name,
+                ReconciliationSnapshot.run_date >= lookback,
             )
         )
         events_result = await self.db.execute(events_q)

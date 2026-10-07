@@ -15,8 +15,6 @@ When to switch to Celery:
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
 
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -50,20 +48,24 @@ def _ensure_apscheduler_table(sync_db_url: str, tablename: str) -> None:
         # Use a savepoint so a failure here doesn't poison the outer connection
         with engine.begin() as conn:
             conn.execute(
-                text(f"""
+                text(
+                    f"""
                     CREATE TABLE IF NOT EXISTS {tablename} (
                         id          VARCHAR(191) NOT NULL,
                         next_run_time FLOAT(25),
                         job_state   BYTEA        NOT NULL,
                         PRIMARY KEY (id)
                     )
-                """)
+                """
+                )
             )
             conn.execute(
-                text(f"""
+                text(
+                    f"""
                     CREATE INDEX IF NOT EXISTS ix_{tablename}_next_run_time
                     ON {tablename} (next_run_time)
-                """)
+                """
+                )
             )
         log.info("apscheduler_table_ensured", tablename=tablename)
     except (IntegrityError, OperationalError) as exc:
@@ -90,13 +92,11 @@ def start_scheduler() -> AsyncIOScheduler:
     _ensure_apscheduler_table(sync_db_url, tablename)
 
     scheduler = AsyncIOScheduler(
-        jobstores={
-            "default": SQLAlchemyJobStore(url=sync_db_url, tablename=tablename)
-        },
+        jobstores={"default": SQLAlchemyJobStore(url=sync_db_url, tablename=tablename)},
         executors={"default": AsyncIOExecutor()},
         job_defaults={
-            "coalesce": True,           # If job missed multiple times, run once
-            "max_instances": 1,         # Never run same job concurrently
+            "coalesce": True,  # If job missed multiple times, run once
+            "max_instances": 1,  # Never run same job concurrently
             "misfire_grace_time": 300,  # 5 minute grace window
         },
     )
@@ -108,8 +108,11 @@ def start_scheduler() -> AsyncIOScheduler:
             raise ValueError(f"Invalid cron string: {cron_str}")
         minute, hour, day, month, day_of_week = parts
         return dict(
-            minute=minute, hour=hour, day=day,
-            month=month, day_of_week=day_of_week,
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=day_of_week,
         )
 
     recon_cron = parse_cron(settings.RECONCILIATION_CRON)
@@ -197,7 +200,6 @@ async def drift_check_job() -> None:
     """Scheduled drift analysis."""
     from app.core.exceptions import InsufficientDataError
     from app.database import get_db_context
-    from app.models import DriftEvent
     from app.services.drift_analyzer import DriftAnalyzer
 
     log.info("scheduled_drift_check_start")
@@ -234,7 +236,9 @@ async def drift_check_job() -> None:
                     log.info("drift_check_clean", source=source)
 
         except InsufficientDataError as e:
-            log.info("drift_check_skipped_insufficient_data", source=source, detail=str(e))
+            log.info(
+                "drift_check_skipped_insufficient_data", source=source, detail=str(e)
+            )
         except Exception as e:
             log.error("drift_check_failed", source=source, error=str(e))
 
@@ -258,8 +262,3 @@ async def send_alert(title: str, message: str) -> None:
             resp.raise_for_status()
     except Exception as e:
         log.error("alert_webhook_failed", error=str(e))
-
-
-def get_settings():
-    from app.config import get_settings as _get_settings
-    return _get_settings()
