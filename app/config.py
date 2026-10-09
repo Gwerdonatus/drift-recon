@@ -11,7 +11,7 @@ import hashlib
 import secrets
 from functools import lru_cache
 
-from pydantic import field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # ── Application ────────────────────────────────────────────
@@ -42,6 +43,17 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     API_KEY_SALT: str
     VALID_API_KEYS: str  # comma-separated raw keys from env
+
+    # Read-only sandbox integration; never accept a live credential.
+    STRIPE_SECRET_KEY: SecretStr = SecretStr("")
+
+    @field_validator("STRIPE_SECRET_KEY")
+    @classmethod
+    def sandbox_key_only(cls, value: SecretStr) -> SecretStr:
+        key = value.get_secret_value()
+        if key and not key.startswith("sk_test_"):
+            raise ValueError("Stripe integration requires a sandbox secret key")
+        return value
 
     # ── Matching Engine ────────────────────────────────────────
     MATCH_CONFIDENCE_THRESHOLD: float = 0.75

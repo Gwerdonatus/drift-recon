@@ -15,7 +15,7 @@ All financial rows are synthetic and statements are simulated. Eight batches are
 
 ## Measured checks
 
-- 75 backend tests passed against an isolated PostgreSQL database; 75.97% coverage, above the configured 70% gate.
+- 87 backend tests passed against an isolated PostgreSQL database; 77.01% coverage, above the configured 70% gate.
 - Black formatting and Ruff lint passed for `app/` and `tests/`.
 - Compose configuration validation passed; all five services became healthy: PostgreSQL, Redis, API, dashboard and Nginx.
 - Startup migrations completed. PostgreSQL contains both persisted scheduler jobs.
@@ -27,3 +27,12 @@ All financial rows are synthetic and statements are simulated. Eight batches are
 - Browser validation exposed a NumPy/PyArrow incompatibility and unsupported nested expanders. Compatible pins, a flat evidence layout and a complete Streamlit AppTest rendering check address both. The rendering check is included in CI.
 
 The test suite includes mocks. The separate live HTTP scenario verifies actual persistence and the browser screenshots document actual rendering. No load benchmark or production deployment is claimed. Mypy remains advisory in CI. The pull request is intentionally unmerged; reviewers should use its branch to see the walkthrough changes.
+
+## Stripe sandbox verification
+
+- Actual provider GET requests returned three captured USD charges totaling $33.
+- First sync accepted 3 rows; second accepted 0 and skipped 3 duplicates.
+- TxCore independently supplied internal amounts and settlement dates; Stripe Checkout supplied the corresponding payment identities.
+- Reconciliation matched all 3 records, with no review or unmatched records.
+- Live credentials and records, inconsistent fee/net values, repeated pagination and unsupported FX pairs are rejected or skipped in regression tests.
+- No payments, payouts or live bank actions were performed.

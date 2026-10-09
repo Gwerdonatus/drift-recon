@@ -121,6 +121,18 @@ def fetch_health() -> dict:
         return {"status": "unreachable", "error": str(e)}
 
 
+@st.cache_data(ttl=60)
+def fetch_stripe_status() -> dict:
+    try:
+        response = httpx.get(
+            f"{API_BASE}/api/v1/integrations/stripe/status", headers=HEADERS, timeout=20
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return {"configured": True, "connected": False}
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -128,7 +140,7 @@ with st.sidebar:
 
     source_name = st.text_input(
         "Source Name",
-        value="default",
+        value=st.query_params.get("source", "default"),
         help="The source_name used during reconciliation runs",
     )
 
@@ -147,6 +159,40 @@ with st.sidebar:
         st.caption(f"v{health['version']} · {health.get('environment', '')}")
 
     st.divider()
+    st.caption("Stripe sandbox · read-only")
+    stripe_status = fetch_stripe_status()
+    if stripe_status.get("connected"):
+        st.success("Connected to Stripe sandbox")
+        st.caption(stripe_status["account_id"])
+        if st.button("Sync Stripe sandbox"):
+            try:
+                response = httpx.post(
+                    f"{API_BASE}/api/v1/integrations/stripe/sync",
+                    headers=HEADERS,
+                    json={},
+                    timeout=180,
+                )
+                response.raise_for_status()
+                imported = response.json()
+                st.success(
+                    f"{imported['accepted']} imported · {imported['duplicate_skipped']} already present"
+                )
+                for source in imported["sources"]:
+                    st.link_button(
+                        "View " + source.rsplit(":", 1)[-1] + " reconciliation",
+                        "?source=" + source,
+                    )
+                st.cache_data.clear()
+            except Exception:
+                st.error(
+                    "Sync failed. Check API logs and retry; existing records are preserved."
+                )
+    elif stripe_status.get("configured"):
+        st.warning("Stripe connection unavailable")
+    else:
+        st.caption("Stripe sandbox is not configured")
+
+    st.divider()
     st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
 
@@ -154,7 +200,7 @@ with st.sidebar:
 
 st.title("Reconciliation Monitor")
 st.caption(
-    "Local engineering demo · synthetic records and simulated bank statements. No bank connection."
+    "Local engineering demo · synthetic records and Stripe sandbox test payments. No live bank connection."
 )
 
 snapshots_df = fetch_snapshots(source_name, limit=365)

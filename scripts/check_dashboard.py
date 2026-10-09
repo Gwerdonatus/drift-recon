@@ -44,7 +44,9 @@ result = {
 
 
 def response(url, **kwargs):
-    if url.endswith("/health"):
+    if url.endswith("/integrations/stripe/status"):
+        data = {"configured": False, "connected": False}
+    elif url.endswith("/health"):
         data = {"status": "healthy", "version": "test", "environment": "test"}
     elif "/snapshots" in url:
         data = [snapshot]

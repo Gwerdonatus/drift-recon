@@ -320,3 +320,20 @@ def test_request_thresholds_do_not_mutate_cached_settings():
         second.settings.MATCH_CONFIDENCE_THRESHOLD == cached.MATCH_CONFIDENCE_THRESHOLD
     )
     assert second.matcher.settings is second.settings
+
+
+def test_stripe_payment_identity_is_required(matcher):
+    transactions = [_txn("T1", "3.00", "pi_correct")]
+    wrong = [_bank("B1", "3.00", "pi_wrong")]
+    assert not matcher.match(
+        transactions, wrong, "run", "stripe-sandbox:acct_test:USD"
+    ).matched
+    correct = [_bank("B2", "3.00", "pi_correct")]
+    assert (
+        len(
+            matcher.match(
+                transactions, correct, "run", "stripe-sandbox:acct_test:USD"
+            ).matched
+        )
+        == 1
+    )

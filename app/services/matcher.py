@@ -308,6 +308,12 @@ class ReconciliationMatcher:
             date_max = txn_date + timedelta(days=tolerance_days)
 
             for bank in bank_entries:
+                # Provider payment identity must agree before fuzzy scoring.
+                if source_name.startswith("stripe-sandbox:") and (
+                    not txn.get("reference")
+                    or txn["reference"] != bank.get("reference")
+                ):
+                    continue
                 # Currency is a hard eligibility rule, never a fuzzy score.
                 if not txn.get("currency") or txn.get("currency") != bank.get(
                     "currency"

@@ -6,7 +6,7 @@ A financial reconciliation and data-drift service built by **Donatus Gwer**. It 
 
 An unmatched payment is one problem. A sudden change from a normally high match rate to many unmatched payments is a different problem: something upstream may have changed. Drift Recon makes both visible, with the evidence behind each signal.
 
-This is a solo engineering project demonstrated with **synthetic records and simulated bank statements**. It does not connect to a bank, move funds or establish an accounting balance.
+This is a solo engineering project demonstrated with **synthetic records, simulated bank statements and real Stripe sandbox API evidence**. It does not connect to a bank, move funds or establish an accounting balance.
 
 ## Walk through the actual application
 
@@ -41,6 +41,18 @@ A hypothesis suggests where to investigate; it does not prove the root cause. Th
 
 The [API contract screenshot](docs/screenshots/api.jpg) shows the actual ingestion, reconciliation, review and drift endpoints.
 
+## Stripe sandbox reconciliation
+
+The optional connector uses **GET requests only** to Stripe. The dashboard shows connection status and offers **Sync Stripe sandbox** to import successful captured charges for the last 31 days. Repeating the sync skips existing balance transaction IDs. Credentials stay in the ignored server-side `.env`; `sk_live_` credentials are rejected.
+
+Charges are isolated by account and currency. Matching requires the exact payment-intent reference before applying the confidence score. Amounts are gross charges; fee, net and balance-availability fields are retained as evidence. This does **not** confirm a bank deposit or payout. Supported currencies are USD, EUR, GBP, NGN and JPY; refunds, disputes, payouts and currency-converted charges are outside this connector's scope.
+
+The verified local example compared three independently exported TxCore settled payments ($3, $5 and $25) with three Stripe sandbox charges: **3 matched, 0 unmatched, $33 gross, 100% match rate**. Repeated provider sync and internal import created no duplicate rows. One reconciliation run is insufficient for a historical drift baseline.
+
+![Actual Stripe sandbox connection and reconciliation](docs/screenshots/stripe.jpg)
+
+See [the sandbox integration runbook](docs/stripe-sandbox.md) for setup and the independent internal-record import.
+
 ## Implemented behavior
 
 | Area | Behavior |
@@ -53,7 +65,7 @@ The [API contract screenshot](docs/screenshots/api.jpg) shows the actual ingesti
 | Repeat analysis | Existing snapshot/metric signals are not duplicated |
 | Human review | API records a verdict alongside the original engine decision |
 | Scheduling | One scheduler owner, PostgreSQL-persisted jobs and database-discovered sources |
-| Access | API-key-authenticated business endpoints; read-only local dashboard |
+| Access | API-key-authenticated business endpoints; dashboard with read-only Stripe provider access and local sync |
 | Operations | Docker Compose, database-aware health checks and structured request logs |
 
 ## Run locally
@@ -80,13 +92,13 @@ The configuration command generates private development credentials once and pre
 | API contract | http://localhost:8200/docs |
 | Health | http://localhost:8200/health |
 
-Select source **demo-recruiter** in the dashboard. No dashboard login is supplied; it is a read-only local interface. Its API key is server-side. All host ports bind to loopback, with PostgreSQL and Redis private to Compose. Sentinel and TxCore can remain running on their own ports.
+Select source **demo-recruiter** in the dashboard. No dashboard login is supplied; it is a local monitoring interface with a sandbox import button. Its API key is server-side. All host ports bind to loopback, with PostgreSQL and Redis private to Compose. Sentinel and TxCore can remain running on their own ports.
 
 [Walkthrough and verification](docs/verification.md) · [Engineering decisions](docs/engineering.md) · [Local runbook](RUNBOOK.md) · [Screenshot provenance](docs/screenshots/README.md)
 
 ## Verify
 
-Local verification: **75 passing tests · 75.97% backend coverage** against PostgreSQL.
+Local verification: **87 passing tests · 77.01% backend coverage** against PostgreSQL.
 
 The full suite uses a separate PostgreSQL test database. The check script never drops the application database.
 
@@ -106,7 +118,7 @@ Tests mock some service boundaries; the separate HTTP demo exercises the running
 - Review verdicts are recorded; they do not train a model or automatically rewrite ledger state.
 - Drift uses snapshots inside a time window, not necessarily one observation per day. A constant baseline produces no meaningful z-score and is not flagged by this statistical method.
 - Invalid-row submissions retain quarantine evidence; repeated invalid submissions can create additional quarantine records. Valid financial rows deduplicate by external ID and source.
-- The read-only dashboard and API-key identities do not provide named-user authorization or reliable analyst attribution. Review/resolve names are caller-supplied labels.
+- The dashboard and API-key identities do not provide named-user authorization or reliable analyst attribution. Review/resolve names are caller-supplied labels.
 - One API process owns the scheduler. Horizontal scaling requires separate scheduling ownership. PostgreSQL advisory locks serialize runs for each source.
 - Local HTTP configuration is not a hardened public deployment. TLS templates are retained separately; their deployment, dependency security review, backups/restores and high availability have not been verified here.
 
