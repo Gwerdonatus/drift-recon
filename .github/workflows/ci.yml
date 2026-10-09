@@ -157,7 +157,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r dashboard/requirements.txt
-      - run: python -c "import numpy, pandas, pyarrow, streamlit; import pyarrow as pa; pa.table({'amount': [100]})"
+      - run: |
+          python -c "import numpy, pandas, pyarrow, streamlit; import pyarrow as pa; pa.table({'amount': [100]})"
       - run: python -m py_compile dashboard/app.py
 
   # ── Build & Push Image ───────────────────────────────────────────────────────
