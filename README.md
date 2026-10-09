@@ -49,7 +49,9 @@ Charges are isolated by account and currency. Matching requires the exact paymen
 
 The verified local example compared three independently exported TxCore settled payments ($3, $5 and $25) with three Stripe sandbox charges: **3 matched, 0 unmatched, $33 gross, 100% match rate**. Repeated provider sync and internal import created no duplicate rows. One reconciliation run is insufficient for a historical drift baseline.
 
-![Actual Stripe sandbox connection and reconciliation](docs/screenshots/stripe.jpg)
+![Actual Stripe sandbox reconciliation](docs/screenshots/stripe.jpg)
+
+[View the connected sandbox status](docs/screenshots/stripe-connection.jpg)
 
 See [the sandbox integration runbook](docs/stripe-sandbox.md) for setup and the independent internal-record import.
 

@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -48,14 +49,8 @@ def main():
     groups = defaultdict(list)
     for row in json.loads(Path(sys.argv[1]).read_text()):
         session_id = row["provider_reference"]
-        if (
-            not session_id.startswith("cs_test_")
-            or not session_id.isalnum()
-            and any(
-                c
-                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-                for c in session_id
-            )
+        if not isinstance(session_id, str) or not re.fullmatch(
+            r"cs_test_[A-Za-z0-9]+", session_id
         ):
             raise ValueError("Invalid sandbox session")
         session = stripe("checkout/sessions/" + session_id)
