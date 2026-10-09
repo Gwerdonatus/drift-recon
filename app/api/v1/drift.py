@@ -25,7 +25,7 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
     summary="Run drift analysis for a source",
     description=(
         "Analyzes the latest snapshot against historical baseline. "
-        "Requires at least DRIFT_MIN_SNAPSHOTS (default: 7) prior snapshots."
+        "Requires DRIFT_MIN_SNAPSHOTS total snapshots (default: 7, including current)."
     ),
 )
 async def analyze_drift(
@@ -109,6 +109,7 @@ async def list_drift_events(
             hypothesis=e.hypothesis,
             supporting_evidence=e.supporting_evidence,
             resolved_at=e.resolved_at,
+            resolution_notes=e.resolution_notes,
             created_at=e.created_at,
         )
         for e in events

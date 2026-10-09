@@ -37,7 +37,7 @@ class TransactionIngestionRow(APIModel):
 
     external_id: str = Field(..., min_length=1, max_length=255)
     transaction_date: date
-    amount: Decimal
+    amount: Decimal = Field(max_digits=18, decimal_places=4)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     reference: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
@@ -65,7 +65,7 @@ class BankStatementIngestionRow(APIModel):
     external_id: str = Field(..., min_length=1, max_length=255)
     value_date: date
     posting_date: date | None = None
-    amount: Decimal
+    amount: Decimal = Field(max_digits=18, decimal_places=4)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     reference: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
@@ -113,6 +113,21 @@ class ReconciliationRunRequest(APIModel):
     def validate_date_range(self) -> "ReconciliationRunRequest":
         if self.from_date and self.to_date and self.from_date > self.to_date:
             raise ValueError("from_date must be before to_date")
+        from app.config import get_settings
+
+        settings = get_settings()
+        match = (
+            self.confidence_threshold
+            if self.confidence_threshold is not None
+            else settings.MATCH_CONFIDENCE_THRESHOLD
+        )
+        review = (
+            self.review_threshold
+            if self.review_threshold is not None
+            else settings.MATCH_REVIEW_THRESHOLD
+        )
+        if review > match:
+            raise ValueError("review_threshold must not exceed confidence_threshold")
         return self
 
 
@@ -136,6 +151,9 @@ class ReconciliationResultOut(APIModel):
     amount_delta: Decimal | None
     date_delta_days: int | None
     human_reviewed: bool
+    human_verdict: str | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
     created_at: datetime
 
     @classmethod
@@ -158,6 +176,9 @@ class ReconciliationResultOut(APIModel):
             amount_delta=obj.amount_delta,
             date_delta_days=obj.date_delta_days,
             human_reviewed=obj.human_reviewed,
+            human_verdict=obj.human_verdict,
+            reviewed_by=obj.reviewed_by,
+            reviewed_at=obj.reviewed_at,
             created_at=obj.created_at,
         )
 
@@ -189,6 +210,9 @@ class SnapshotOut(APIModel):
     total_transactions: int
     total_bank_entries: int
     matched_count: int
+    review_count: int
+    p50_confidence: float | None
+    p10_confidence: float | None
     unmatched_count: int
     match_rate: float
     avg_confidence: float | None
@@ -208,6 +232,7 @@ class DriftEventOut(APIModel):
     hypothesis: str | None
     supporting_evidence: dict | None
     resolved_at: datetime | None
+    resolution_notes: str | None
     created_at: datetime
 
 

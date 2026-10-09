@@ -164,6 +164,7 @@ def _txn(external_id, amount, ref="REF", date_str="2024-01-15", desc="Payment"):
         "id": uuid.uuid4(),
         "transaction_date": date.fromisoformat(date_str),
         "amount": Decimal(amount),
+        "currency": "USD",
         "reference": ref,
         "description": desc,
     }
@@ -174,6 +175,7 @@ def _bank(external_id, amount, ref="REF", date_str="2024-01-15", desc="Payment")
         "id": uuid.uuid4(),
         "value_date": date.fromisoformat(date_str),
         "amount": Decimal(amount),
+        "currency": "USD",
         "reference": ref,
         "description": desc,
     }
@@ -293,3 +295,28 @@ class TestMatcher:
         result = matcher.match(txns, banks, "run-10", "test")
         assert result.matched[0].match_reason is not None
         assert "%" in result.matched[0].match_reason  # confidence shown
+
+
+def test_different_currencies_cannot_be_matched(matcher):
+    txn = _txn("T-CURRENCY", "100")
+    bank = _bank("B-CURRENCY", "100")
+    bank["currency"] = "EUR"
+    result = matcher.match([txn], [bank], "currency-proof", "test")
+    assert not result.matched and not result.review
+    assert result.unmatched_transactions == [txn["id"]]
+    assert result.unmatched_bank == [bank["id"]]
+
+
+def test_request_thresholds_do_not_mutate_cached_settings():
+    from app.config import get_settings
+    from app.services.matcher import ReconciliationOrchestrator
+    from unittest.mock import MagicMock
+
+    cached = get_settings()
+    first = ReconciliationOrchestrator(MagicMock())
+    first.settings.MATCH_CONFIDENCE_THRESHOLD = 0.99
+    second = ReconciliationOrchestrator(MagicMock())
+    assert (
+        second.settings.MATCH_CONFIDENCE_THRESHOLD == cached.MATCH_CONFIDENCE_THRESHOLD
+    )
+    assert second.matcher.settings is second.settings

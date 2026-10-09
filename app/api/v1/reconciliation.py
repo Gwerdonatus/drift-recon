@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_api_key
+from app.core.exceptions import InsufficientDataError
+from app.core.logging import get_logger
 from app.database import get_db
 from app.models import ReconciliationResult, ReconciliationSnapshot
 from app.schemas import (
@@ -24,6 +26,7 @@ from app.services.drift_analyzer import DriftAnalyzer
 from app.services.matcher import ReconciliationOrchestrator
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
+log = get_logger(__name__)
 
 
 @router.post(
@@ -53,13 +56,19 @@ async def run_reconciliation(
     # Run drift analysis on the new snapshot (non-blocking on failure)
     drift_events_raised = 0
     try:
-        analyzer = DriftAnalyzer(db=db)
-        events = await analyzer.analyze_latest(source_name=body.source_name)
-        for event in events:
-            db.add(event)
-        drift_events_raised = len(events)
+        async with db.begin_nested():
+            analyzer = DriftAnalyzer(db=db)
+            events = await analyzer.analyze_latest(source_name=body.source_name)
+            for event in events:
+                db.add(event)
+            await db.flush()
+            drift_events_raised = len(events)
+    except InsufficientDataError:
+        pass  # A baseline is not available for the first few runs.
     except Exception:
-        pass  # Insufficient data is expected early on; don't fail the run
+        log.exception(
+            "drift_analysis_failed", source=body.source_name, run_id=result.run_id
+        )
 
     confidences = [float(c.confidence) for c in result.matched + result.review]
     avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
@@ -89,7 +98,7 @@ async def run_reconciliation(
 async def get_run_results(
     run_id: str,
     status_filter: str | None = Query(default=None, alias="status"),
-    limit: int = Query(default=100, le=1000),
+    limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -110,7 +119,7 @@ async def get_run_results(
 )
 async def list_snapshots(
     source_name: str | None = Query(default=None),
-    limit: int = Query(default=30, le=365),
+    limit: int = Query(default=30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ):
     query = (
@@ -132,6 +141,13 @@ async def list_snapshots(
             total_transactions=s.total_transactions,
             total_bank_entries=s.total_bank_entries,
             matched_count=s.matched_count,
+            review_count=s.review_count,
+            p50_confidence=(
+                float(s.p50_confidence) if s.p50_confidence is not None else None
+            ),
+            p10_confidence=(
+                float(s.p10_confidence) if s.p10_confidence is not None else None
+            ),
             unmatched_count=s.unmatched_count,
             match_rate=float(s.match_rate),
             avg_confidence=float(s.avg_confidence) if s.avg_confidence else None,

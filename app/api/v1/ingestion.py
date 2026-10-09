@@ -44,7 +44,7 @@ async def upload_transactions(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_SIZE + 1)
 
     if len(content) > MAX_UPLOAD_SIZE:
         from fastapi import HTTPException
@@ -70,7 +70,7 @@ async def upload_bank_statements(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_SIZE + 1)
 
     if len(content) > MAX_UPLOAD_SIZE:
         from fastapi import HTTPException

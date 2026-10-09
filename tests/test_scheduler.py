@@ -38,6 +38,9 @@ def _mock_db_context(mock_db=None):
     """Return a context manager mock that yields mock_db."""
     if mock_db is None:
         mock_db = MagicMock()
+        query_result = MagicMock()
+        query_result.scalars.return_value = ["default"]
+        mock_db.execute = AsyncMock(return_value=query_result)
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_db)
     ctx.__aexit__ = AsyncMock(return_value=False)

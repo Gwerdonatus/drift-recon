@@ -140,6 +140,16 @@ class DriftAnalyzer:
         # Most recent is the current; rest form the baseline
         current = snapshots[-1]
         baseline = snapshots[:-1]
+        # Serialize analysis for this snapshot and skip previously recorded metrics.
+        await self.db.execute(
+            select(ReconciliationSnapshot.id)
+            .where(ReconciliationSnapshot.id == current.id)
+            .with_for_update()
+        )
+        existing = await self.db.execute(
+            select(DriftEvent.metric_name).where(DriftEvent.snapshot_id == current.id)
+        )
+        existing_metrics = set(existing.scalars())
 
         log.info(
             "drift_analysis_start",
@@ -152,6 +162,8 @@ class DriftAnalyzer:
 
         for metric_config in MONITORED_METRICS:
             metric_name = metric_config["name"]
+            if metric_name in existing_metrics:
+                continue
             col_name = metric_config["column"]
             direction = metric_config["direction"]
             event_type = metric_config["event_type"]
@@ -354,6 +366,8 @@ class DriftAnalyzer:
                 ReconciliationSnapshot.run_date >= lookback,
             )
         )
+        if latest is not None:
+            baseline_q = baseline_q.where(ReconciliationSnapshot.id != latest.id)
         baseline_result = await self.db.execute(baseline_q)
         baseline_mean = baseline_result.scalar()
 
@@ -384,7 +398,7 @@ class DriftAnalyzer:
                 by_severity[e.severity] = by_severity.get(e.severity, 0) + 1
 
         # Trend: compare first vs last half of baseline
-        if latest and baseline_mean:
+        if latest and baseline_mean is not None:
             latest_rate = float(latest.match_rate)
             base = float(baseline_mean)
             if abs(latest_rate - base) < 0.01:
