@@ -1,254 +1,126 @@
-# Data Drift Diagnosis & Reconciliation Service
+# Drift Recon
 
-A production-grade system that continuously reconciles financial transactions against bank statements, detects data drift, and diagnoses root causes of mismatches.
+A financial reconciliation and data-drift service built by **Donatus Gwer**. It compares internal transaction records with statement rows, explains matching confidence, and flags changes in reconciliation quality.
 
-> **"Something is wrong"** → most tools stop here.
-> **"What broke, when it broke, and why it broke"** → what this system answers.
+[![CI](https://github.com/Gwerdonatus/drift-recon/actions/workflows/ci.yml/badge.svg?branch=fix%2Frecruiter-demo)](https://github.com/Gwerdonatus/drift-recon/actions)
 
-## Architecture
+An unmatched payment is one problem. A sudden change from a normally high match rate to many unmatched payments is a different problem: something upstream may have changed. Drift Recon makes both visible, with the evidence behind each signal.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          Nginx (TLS)                            │
-│              api.yourdomain.com  |  dashboard.yourdomain.com    │
-└────────────────────┬────────────────────────┬───────────────────┘
-                     │                        │
-           ┌─────────▼──────────┐   ┌─────────▼──────────┐
-           │   FastAPI (8000)   │   │ Streamlit (8501)    │
-           │                    │   │                      │
-           │  Ingestion Layer   │   │  Live Dashboard      │
-           │  Matching Engine   │   │  Drift Visualizer    │
-           │  Drift Analyzer    │   │  Run History         │
-           │  REST API          │   │                      │
-           └─────────┬──────────┘   └────────────────────-─┘
-                     │
-           ┌─────────▼──────────┐   ┌────────────────────┐
-           │  PostgreSQL (5432) │   │   Redis (6379)     │
-           │                    │   │                    │
-           │  transactions      │   │  Rate limiting     │
-           │  bank_statements   │   │  Job store         │
-           │  recon_results     │   │                    │
-           │  snapshots         │   └────────────────────┘
-           │  drift_events      │
-           │  quarantined_recs  │
-           └────────────────────┘
+This is a solo engineering project demonstrated with **synthetic records and simulated bank statements**. It does not connect to a bank, move funds or establish an accounting balance.
+
+## Walk through the actual application
+
+### Monitor reconciliation quality
+
+The Streamlit dashboard shows match rate, matched and unmatched counts, confidence trends, run history and open drift events. Review candidates are displayed separately from unmatched records. Average confidence describes scored matched/review pairs; 100% confidence on five matches can coexist with fifteen unmatched records and a 25% match rate.
+
+![Actual reconciliation dashboard](docs/screenshots/overview.jpg)
+
+### Inspect why records matched
+
+Matching first requires the same currency, amount sign and date window. Eligible pairs receive a weighted score:
+
+```text
+confidence = 0.50 × amount score
+           + 0.25 × date score
+           + 0.15 × reference score
+           + 0.10 × description score
 ```
 
-## Core Features
+Exact agreement across all four factors scores 1.00. The default automatic-match threshold is 0.75; candidates from 0.50 to below 0.75 enter review. The engine assigns the highest-scoring available pairs greedily, consuming each record at most once. This is an explainable heuristic, not a trained model or guaranteed globally optimal assignment.
 
-| Feature | Implementation |
-|---------|---------------|
-| **Idempotent ingestion** | SHA-256 content hash → deterministic batch ID; `ON CONFLICT DO NOTHING` |
-| **Confidence-based matching** | Multi-factor weighted scoring (amount, date, reference, description) |
-| **Dead-letter quarantine** | Invalid rows parked in `quarantined_records`, never dropped |
-| **Statistical drift detection** | Z-score on 30-day rolling window of match rate, confidence, date delta |
-| **Root cause hypotheses** | Rule-based diagnosis per drift event type |
-| **Human review workflow** | Analysts can override engine decisions; stored for model improvement |
-| **Scheduled runs** | APScheduler with PostgreSQL job store (survives restarts) |
-| **Structured logging** | JSON in production, colored in dev; every request gets a trace ID |
+![Actual scored reconciliation results](docs/screenshots/results.jpg)
 
-## Quick Start (Development)
+### Investigate a change in the baseline
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.12+ (for local dev without Docker)
+The staged demonstration creates seven varying, high-match-rate runs, followed by a run where only five of twenty internal records have statement counterparts. The service compares the latest snapshot with earlier snapshots inside its lookback window and records high-severity drift evidence.
 
-### 1. Clone and configure
-```bash
-git clone https://github.com/Gwerdonatus/drift-recon
+![Actual drift event with statistical evidence](docs/screenshots/drift.jpg)
+
+A hypothesis suggests where to investigate; it does not prove the root cause. The demo runs are generated locally, not collected over thirty days of production traffic.
+
+The [API contract screenshot](docs/screenshots/api.jpg) shows the actual ingestion, reconciliation, review and drift endpoints.
+
+## Implemented behavior
+
+| Area | Behavior |
+|---|---|
+| CSV ingestion | Column normalization, validated rows, deterministic batch IDs and database duplicate protection |
+| Quarantine | Invalid rows retain their original data and failure reason |
+| Matching | Currency eligibility, weighted confidence, one-to-one greedy assignment and review candidates |
+| Run safety | Per-source transaction locks and request-local threshold settings |
+| Drift | Latest-run snapshots, historical baselines, severity, hypotheses and evidence |
+| Repeat analysis | Existing snapshot/metric signals are not duplicated |
+| Human review | API records a verdict alongside the original engine decision |
+| Scheduling | One scheduler owner, PostgreSQL-persisted jobs and database-discovered sources |
+| Access | API-key-authenticated business endpoints; read-only local dashboard |
+| Operations | Docker Compose, database-aware health checks and structured request logs |
+
+## Run locally
+
+Changes are on [`fix/recruiter-demo`, PR #1](https://github.com/Gwerdonatus/drift-recon/pull/1), pending review.
+
+```sh
+git clone https://github.com/Gwerdonatus/drift-recon.git
 cd drift-recon
-cp .env.example .env
-# Edit .env — at minimum set SECRET_KEY, API_KEY_SALT, VALID_API_KEYS
+git switch fix/recruiter-demo
+python3 scripts/configure_local.py
+docker compose -p drift-recon config --quiet
+docker compose -p drift-recon up -d --build --wait --wait-timeout 300
+python3 scripts/demo.py
+python3 scripts/demo.py
 ```
 
-### 2. Generate secure values
-```bash
-# SECRET_KEY
-openssl rand -hex 32
+The configuration command generates private development credentials once and preserves an existing `.env`. Startup runs migrations automatically. The demo asserts ingestion retries, reconciliation counts, quarantine and high-severity drift. Repeating a completed demo preserves its eight-run history.
 
-# API_KEY_SALT
-openssl rand -hex 16
+| Interface | URL |
+|---|---|
+| Dashboard | http://localhost:8502 |
+| Dashboard through Nginx | http://localhost:8082 |
+| API contract | http://localhost:8200/docs |
+| Health | http://localhost:8200/health |
 
-# API key for clients
-openssl rand -hex 24
+Select source **demo-recruiter** in the dashboard. No dashboard login is supplied; it is a read-only local interface. Its API key is server-side. All host ports bind to loopback, with PostgreSQL and Redis private to Compose. Sentinel and TxCore can remain running on their own ports.
+
+[Walkthrough and verification](docs/verification.md) · [Engineering decisions](docs/engineering.md) · [Local runbook](RUNBOOK.md) · [Screenshot provenance](docs/screenshots/README.md)
+
+## Verify
+
+Local verification: **75 passing tests · 75.97% backend coverage** against PostgreSQL.
+
+The full suite uses a separate PostgreSQL test database. The check script never drops the application database.
+
+```sh
+# Create this isolated database once; preserve it for subsequent checks.
+docker compose -p drift-recon exec postgres psql -U recon_user -d reconciliation -c 'CREATE DATABASE recon_test'
+docker compose -p drift-recon run --rm --no-deps --user 0 --entrypoint sh \
+  -v "$PWD:/app" api -c 'ruff check app/ tests/ && black --check app/ tests/ && python -m scripts.check_local'
 ```
 
-### 3. Start the stack
-```bash
-docker compose up -d
-docker compose logs -f api   # Watch startup
-```
+Tests mock some service boundaries; the separate HTTP demo exercises the running API and real PostgreSQL persistence. CI runs lint, formatting and tests. Mypy remains advisory in the existing workflow; it is not represented as a passing strict type gate. No throughput, p95 latency or production traffic figure is claimed.
 
-### 4. Run migrations
-```bash
-docker compose exec api alembic upgrade head
-```
+## Boundaries
 
-### 5. Generate and upload sample data
-```bash
-python scripts/generate_sample_data.py --rows 500 --output data/
+- This is an API-key-controlled service with a shared local dashboard, not a multi-tenant financial platform or an authenticated analyst portal.
+- Matching is heuristic. It does not establish that funds settled, and currencies are not converted.
+- Review verdicts are recorded; they do not train a model or automatically rewrite ledger state.
+- Drift uses snapshots inside a time window, not necessarily one observation per day. A constant baseline produces no meaningful z-score and is not flagged by this statistical method.
+- Invalid-row submissions retain quarantine evidence; repeated invalid submissions can create additional quarantine records. Valid financial rows deduplicate by external ID and source.
+- The read-only dashboard and API-key identities do not provide named-user authorization or reliable analyst attribution. Review/resolve names are caller-supplied labels.
+- One API process owns the scheduler. Horizontal scaling requires separate scheduling ownership. PostgreSQL advisory locks serialize runs for each source.
+- Local HTTP configuration is not a hardened public deployment. TLS templates are retained separately; their deployment, dependency security review, backups/restores and high availability have not been verified here.
 
-API_KEY="your_key_from_env"
+## Repository map
 
-curl -X POST http://localhost:8000/api/v1/ingest/transactions \
-  -H "X-API-Key: $API_KEY" \
-  -F "file=@data/transactions.csv" \
-  -F "source=demo"
+| Path | Purpose |
+|---|---|
+| `app/services` | CSV ingestion, matching and drift analysis |
+| `app/api/v1` | Ingestion, reconciliation, review and drift endpoints |
+| `app/models` | Transactions, statements, results, snapshots and quarantine |
+| `app/workers` | Persistent scheduled reconciliation and drift checks |
+| `dashboard` | Actual Streamlit monitoring interface |
+| `tests` | Unit and PostgreSQL regression tests |
+| `scripts/demo.py` | Asserted synthetic HTTP scenario |
+| `docs` | Evidence, decisions and actual screenshots |
 
-curl -X POST http://localhost:8000/api/v1/ingest/bank-statements \
-  -H "X-API-Key: $API_KEY" \
-  -F "file=@data/bank_statements.csv" \
-  -F "bank_name=demo"
-```
-
-### 6. Run reconciliation
-```bash
-curl -X POST http://localhost:8000/api/v1/reconciliation/run \
-  -H "X-API-Key: $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"source_name": "demo"}'
-```
-
-### 7. Open dashboard
-Visit http://localhost:8501 (Streamlit) or http://localhost:8000/docs (FastAPI, dev only)
-
-## API Reference
-
-### Authentication
-All endpoints require `X-API-Key` header.
-
-### Ingestion
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/ingest/transactions` | Upload transaction CSV |
-| `POST` | `/api/v1/ingest/bank-statements` | Upload bank statement CSV |
-
-**CSV column names** are flexible — the ingestion service maps common variants automatically. Minimum required: `external_id`, `transaction_date`/`value_date`, `amount`.
-
-### Reconciliation
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/reconciliation/run` | Trigger a reconciliation run |
-| `GET`  | `/api/v1/reconciliation/results/{run_id}` | Get results for a run |
-| `GET`  | `/api/v1/reconciliation/snapshots` | Historical snapshot list |
-| `PATCH`| `/api/v1/reconciliation/results/{id}/review` | Human review override |
-
-### Drift
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/drift/analyze/{source}` | Run drift analysis |
-| `GET`  | `/api/v1/drift/summary/{source}` | 30-day drift summary |
-| `GET`  | `/api/v1/drift/events` | List drift events |
-| `PATCH`| `/api/v1/drift/events/{id}/resolve` | Resolve a drift event |
-
-## Matching Algorithm
-
-Confidence score = weighted sum of four factors:
-
-```
-confidence = 0.50 × amount_score
-           + 0.25 × date_score
-           + 0.15 × reference_score
-           + 0.10 × description_score
-```
-
-| Score | 1.0 | 0.9 | 0.7 | 0.5 | 0.0 |
-|-------|-----|-----|-----|-----|-----|
-| **Amount** | Exact | ≤1% diff | — | ≤3% diff | >3% diff |
-| **Date** | Same day | ±1d | ±2d | ±3d | >3d |
-| **Reference** | Exact | Token sort ≥90% | Partial ≥70% | — | No match |
-| **Description** | 95%+ similarity | Linear scale | | | No overlap |
-
-Threshold defaults:
-- `≥0.75` → **MATCHED** (auto)
-- `0.50–0.75` → **REVIEW** (human queue)
-- `<0.50` → **UNMATCHED**
-
-## Drift Detection
-
-Z-score based anomaly detection on a 30-day rolling window:
-
-```
-z = (current_metric - baseline_mean) / baseline_stddev
-```
-
-Monitored metrics: `match_rate`, `avg_confidence`, `avg_date_delta_days`, `unmatched_count`
-
-| |z| | Severity |
-|------|---------|
-| 2.0–2.5σ | LOW |
-| 2.5–3.0σ | MEDIUM |
-| >3.0σ | HIGH |
-
-Requires minimum 7 snapshots before drift analysis activates.
-
-## VPS Deployment
-
-See the [RUNBOOK](RUNBOOK.md) for full operational procedures.
-
-### Initial setup
-```bash
-# On your VPS as root
-wget https://raw.githubusercontent.com/your-repo/main/scripts/setup_vps.sh
-sudo bash setup_vps.sh
-```
-
-### SSL certificates
-```bash
-# Using Let's Encrypt (certbot)
-sudo certbot certonly --standalone -d api.yourdomain.com -d dashboard.yourdomain.com
-sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem /opt/drift-recon/nginx/ssl/
-sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem /opt/drift-recon/nginx/ssl/
-```
-
-### Update nginx config
-Edit `nginx/conf.d/default.conf` — replace `yourdomain.com` with your actual domain.
-
-## Running Tests
-```bash
-# Unit tests only (no DB required)
-pytest tests/test_matcher.py -m unit -v
-
-# Full test suite (requires test DB)
-export TEST_DATABASE_URL="postgresql+asyncpg://recon_user:pass@localhost:5432/recon_test"
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
-```
-
-## Project Structure
-```
-drift-recon/
-├── app/
-│   ├── api/v1/          # FastAPI routers (ingestion, reconciliation, drift)
-│   ├── core/            # Logging, security, exceptions
-│   ├── models/          # SQLAlchemy models
-│   ├── schemas/         # Pydantic v2 schemas
-│   ├── services/        # Business logic (ingestion, matcher, drift_analyzer)
-│   ├── workers/         # Background scheduler
-│   ├── config.py        # Settings with validation
-│   ├── database.py      # Engine, session, health check
-│   └── main.py          # FastAPI app factory
-├── alembic/             # Database migrations
-├── dashboard/           # Streamlit monitoring dashboard
-├── nginx/               # Reverse proxy config
-├── postgres/            # DB config and init scripts
-├── scripts/             # VPS setup, backup, credential rotation, data gen
-├── tests/               # Pytest unit + integration tests
-├── .github/workflows/   # CI/CD pipeline
-├── docker-compose.yml
-├── Dockerfile
-└── RUNBOOK.md
-```
-
-## Security Model
-- API key auth with HMAC-SHA256 hashing (raw keys never stored post-startup)
-- Constant-time key comparison (timing attack resistant)
-- No Postgres or Redis ports exposed on host in production
-- All traffic terminates at Nginx with TLS 1.2/1.3
-- Non-root Docker containers
-- Pre-commit hook blocks secret detection and direct main pushes
-
-## License
-MIT
+**Donatus Gwer — Backend Engineer** · [GitHub](https://github.com/Gwerdonatus) · [LinkedIn](https://linkedin.com/in/donatus-gwer)
