@@ -160,6 +160,7 @@ jobs:
       - run: |
           python -c "import numpy, pandas, pyarrow, streamlit; import pyarrow as pa; pa.table({'amount': [100]})"
       - run: python -m py_compile dashboard/app.py
+      - run: python scripts/check_dashboard.py
 
   # ── Build & Push Image ───────────────────────────────────────────────────────
   build:

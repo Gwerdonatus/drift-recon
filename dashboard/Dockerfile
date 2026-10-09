@@ -10,10 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY dashboard/requirements.txt .
-RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt
+ARG PIP_NO_INDEX=0
+RUN --mount=type=bind,source=dashboard,target=/dependency-source \
+    pip install --no-cache-dir --timeout 120 --retries 5 \
+    --find-links=/dependency-source/.wheel-cache -r requirements.txt
 RUN python -c "import numpy, pandas, pyarrow, streamlit"
 
-COPY --chown=appuser:appgroup dashboard/ .
+COPY --chown=appuser:appgroup dashboard/app.py .
 
 USER appuser
 

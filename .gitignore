@@ -51,3 +51,6 @@ uploads/
 Thumbs.db
 
 coverage.xml
+
+# Optional local wheels; never committed or copied into the runtime image
+dashboard/.wheel-cache/*.whl

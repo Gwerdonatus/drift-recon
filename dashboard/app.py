@@ -376,8 +376,8 @@ if not drift_df.empty:
                     st.info(f"💡 **Hypothesis:** {event['hypothesis']}")
 
                 if event.get("supporting_evidence"):
-                    with st.expander("📎 Supporting Evidence"):
-                        st.json(event["supporting_evidence"])
+                    st.caption("Supporting evidence")
+                    st.json(event["supporting_evidence"])
     else:
         st.success("✅ No open drift events.")
 
