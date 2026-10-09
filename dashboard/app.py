@@ -38,6 +38,7 @@ st.set_page_config(
 
 # ── API Client ─────────────────────────────────────────────────────────────────
 
+
 @st.cache_data(ttl=60)
 def fetch_snapshots(source_name: str, limit: int = 30) -> pd.DataFrame:
     try:
@@ -95,6 +96,22 @@ def fetch_drift_summary(source_name: str) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=60)
+def fetch_results(run_id: str) -> list[dict]:
+    try:
+        response = httpx.get(
+            f"{API_BASE}/api/v1/reconciliation/results/{run_id}",
+            headers=HEADERS,
+            params={"limit": 1000},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        st.error("Could not load the selected run's reconciliation evidence.")
+        return []
+
+
 @st.cache_data(ttl=30)
 def fetch_health() -> dict:
     try:
@@ -104,6 +121,18 @@ def fetch_health() -> dict:
         return {"status": "unreachable", "error": str(e)}
 
 
+@st.cache_data(ttl=60)
+def fetch_stripe_status() -> dict:
+    try:
+        response = httpx.get(
+            f"{API_BASE}/api/v1/integrations/stripe/status", headers=HEADERS, timeout=20
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return {"configured": True, "connected": False}
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -111,11 +140,11 @@ with st.sidebar:
 
     source_name = st.text_input(
         "Source Name",
-        value="default",
+        value=st.query_params.get("source", "default"),
         help="The source_name used during reconciliation runs",
     )
 
-    lookback = st.slider("Lookback (days)", min_value=7, max_value=90, value=30)
+    lookback = st.slider("Chart lookback (days)", min_value=7, max_value=90, value=30)
 
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
@@ -130,14 +159,56 @@ with st.sidebar:
         st.caption(f"v{health['version']} · {health.get('environment', '')}")
 
     st.divider()
+    st.caption("Stripe sandbox · read-only")
+    stripe_status = fetch_stripe_status()
+    if stripe_status.get("connected"):
+        st.success("Connected to Stripe sandbox")
+        st.caption(stripe_status["account_id"])
+        if st.button("Sync Stripe sandbox"):
+            try:
+                response = httpx.post(
+                    f"{API_BASE}/api/v1/integrations/stripe/sync",
+                    headers=HEADERS,
+                    json={},
+                    timeout=180,
+                )
+                response.raise_for_status()
+                imported = response.json()
+                st.success(
+                    f"{imported['accepted']} imported · {imported['duplicate_skipped']} already present"
+                )
+                for source in imported["sources"]:
+                    st.link_button(
+                        "View " + source.rsplit(":", 1)[-1] + " reconciliation",
+                        "?source=" + source,
+                    )
+                st.cache_data.clear()
+            except Exception:
+                st.error(
+                    "Sync failed. Check API logs and retry; existing records are preserved."
+                )
+    elif stripe_status.get("configured"):
+        st.warning("Stripe connection unavailable")
+    else:
+        st.caption("Stripe sandbox is not configured")
+
+    st.divider()
     st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
 
 # ── Main Content ───────────────────────────────────────────────────────────────
 
-st.title("📊 Reconciliation Monitor")
+st.title("Reconciliation Monitor")
+st.caption(
+    "Local engineering demo · synthetic records and Stripe sandbox test payments. No live bank connection."
+)
 
-snapshots_df = fetch_snapshots(source_name, limit=lookback + 5)
+snapshots_df = fetch_snapshots(source_name, limit=365)
+if not snapshots_df.empty:
+    snapshots_df = snapshots_df[
+        snapshots_df["run_date"]
+        >= pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=lookback)
+    ]
 drift_summary = fetch_drift_summary(source_name)
 drift_df = fetch_drift_events(source_name)
 
@@ -181,7 +252,9 @@ if not snapshots_df.empty:
         color = "🔴" if open_drift > 0 else "🟢"
         st.metric("Open Drift Events", f"{color} {open_drift}")
 else:
-    st.info("No reconciliation data found for this source. Run a reconciliation to see metrics.")
+    st.info(
+        "No reconciliation data found for this source. Run a reconciliation to see metrics."
+    )
     st.stop()
 
 
@@ -196,30 +269,25 @@ with left_col:
     if not snapshots_df.empty:
         fig = go.Figure()
 
-        fig.add_trace(go.Scatter(
-            x=snapshots_df["run_date"],
-            y=snapshots_df["match_rate"],
-            mode="lines+markers",
-            name="Match Rate",
-            line=dict(color="#2563eb", width=2),
-            marker=dict(size=6),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=snapshots_df["run_date"],
+                y=snapshots_df["match_rate"],
+                mode="lines+markers",
+                name="Match Rate",
+                line=dict(color="#2563eb", width=2),
+                marker=dict(size=6),
+            )
+        )
 
         # Baseline band
         if drift_summary and drift_summary.get("baseline_match_rate"):
             baseline = drift_summary["baseline_match_rate"]
-            settings_threshold = 0.80  # From config default
             fig.add_hline(
                 y=baseline,
                 line_dash="dot",
                 line_color="gray",
                 annotation_text=f"Baseline {baseline:.1%}",
-            )
-            fig.add_hline(
-                y=settings_threshold,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Alert threshold {settings_threshold:.0%}",
             )
 
         fig.update_layout(
@@ -236,12 +304,13 @@ with right_col:
     if not snapshots_df.empty:
         latest = snapshots_df.iloc[-1]
         matched = int(latest.get("matched_count", 0))
-        review = int(latest.get("unmatched_count", 0))  # simplified
-        unmatched = int(latest.get("total_transactions", 0)) - matched - review
+        review = int(latest.get("review_count", 0))
+        unmatched = int(latest.get("unmatched_count", 0))
 
         fig = px.pie(
             values=[matched, max(review, 0), max(unmatched, 0)],
             names=["Matched", "Review", "Unmatched"],
+            color=["Matched", "Review", "Unmatched"],
             color_discrete_map={
                 "Matched": "#16a34a",
                 "Review": "#d97706",
@@ -258,13 +327,19 @@ with right_col:
 st.subheader("📋 Recent Runs")
 if not snapshots_df.empty:
     display_cols = [
-        "run_date", "run_id", "match_rate", "matched_count",
-        "unmatched_count", "avg_confidence", "run_duration_seconds"
+        "run_date",
+        "run_id",
+        "match_rate",
+        "matched_count",
+        "unmatched_count",
+        "avg_confidence",
+        "run_duration_seconds",
     ]
     display_df = snapshots_df[
         [c for c in display_cols if c in snapshots_df.columns]
     ].copy()
 
+    display_df = display_df.sort_values("run_date", ascending=False)
     display_df["run_date"] = display_df["run_date"].dt.strftime("%Y-%m-%d %H:%M")
     if "match_rate" in display_df:
         display_df["match_rate"] = display_df["match_rate"].apply(lambda x: f"{x:.1%}")
@@ -273,8 +348,38 @@ if not snapshots_df.empty:
             lambda x: f"{x:.1%}" if x else "—"
         )
 
-    display_df = display_df.sort_values("run_date", ascending=False)
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+# Inspect actual engine evidence for a selected run.
+st.subheader("Matching evidence")
+selected_run = st.selectbox(
+    "Reconciliation run", snapshots_df["run_id"].iloc[::-1].tolist()
+)
+results = fetch_results(selected_run)
+if results:
+    evidence = pd.DataFrame(results)
+    st.dataframe(
+        evidence[
+            [
+                "status",
+                "confidence_score",
+                "match_reason",
+                "amount_delta",
+                "date_delta_days",
+                "human_reviewed",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+    with st.expander("Score breakdown and record identifiers"):
+        st.json(results[:5])
+        st.caption(
+            "First five records. API results support pagination; the table loads up to 1,000."
+        )
+else:
+    st.info("No result rows for this run.")
 
 
 # ── Drift Events ───────────────────────────────────────────────────────────────
@@ -290,7 +395,9 @@ if drift_summary:
         "improving": "🟢 Improving",
         "insufficient_data": "⚪ Insufficient Data",
     }.get(trend, trend)
-    st.caption(f"30-day trend: **{trend_icon}**")
+    st.caption(
+        f"{drift_summary.get('lookback_days', 30)}-day analysis window: **{trend_icon}**"
+    )
 
 if not drift_df.empty:
     open_events = drift_df[drift_df["resolved_at"].isna()]
@@ -306,15 +413,17 @@ if not drift_df.empty:
             ):
                 st.write(f"**Type:** {event['event_type']}")
                 st.write(f"**Current Value:** {float(event['current_value']):.4f}")
-                st.write(f"**Baseline Mean:** {float(event['baseline_mean']):.4f} "
-                         f"± {float(event['baseline_stddev']):.4f}")
+                st.write(
+                    f"**Baseline Mean:** {float(event['baseline_mean']):.4f} "
+                    f"± {float(event['baseline_stddev']):.4f}"
+                )
 
                 if event.get("hypothesis"):
                     st.info(f"💡 **Hypothesis:** {event['hypothesis']}")
 
                 if event.get("supporting_evidence"):
-                    with st.expander("📎 Supporting Evidence"):
-                        st.json(event["supporting_evidence"])
+                    st.caption("Supporting evidence")
+                    st.json(event["supporting_evidence"])
     else:
         st.success("✅ No open drift events.")
 
@@ -322,14 +431,25 @@ if not drift_df.empty:
         resolved = drift_df[~drift_df["resolved_at"].isna()]
         if not resolved.empty:
             st.dataframe(
-                resolved[["created_at", "event_type", "severity", "metric_name", "z_score", "resolution_notes"]],
+                resolved[
+                    [
+                        "created_at",
+                        "event_type",
+                        "severity",
+                        "metric_name",
+                        "z_score",
+                        "resolution_notes",
+                    ]
+                ],
                 use_container_width=True,
                 hide_index=True,
             )
         else:
             st.caption("No resolved events yet.")
 else:
-    st.info("No drift events recorded yet. Drift detection activates after 7+ reconciliation runs.")
+    st.info(
+        "No drift events recorded yet. Drift detection activates after 7+ reconciliation runs."
+    )
 
 
 # ── Confidence Distribution ────────────────────────────────────────────────────
@@ -340,22 +460,26 @@ if not snapshots_df.empty and "avg_confidence" in snapshots_df.columns:
 
     fig = go.Figure()
     if "p10_confidence" in snapshots_df.columns:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(
+            go.Scatter(
+                x=snapshots_df["run_date"],
+                y=snapshots_df["p10_confidence"],
+                fill=None,
+                mode="lines",
+                line_color="rgba(37,99,235,0.2)",
+                name="P10",
+            )
+        )
+    fig.add_trace(
+        go.Scatter(
             x=snapshots_df["run_date"],
-            y=snapshots_df["p10_confidence"],
-            fill=None,
-            mode="lines",
-            line_color="rgba(37,99,235,0.2)",
-            name="P10",
-        ))
-    fig.add_trace(go.Scatter(
-        x=snapshots_df["run_date"],
-        y=snapshots_df["avg_confidence"],
-        fill="tonexty" if "p10_confidence" in snapshots_df.columns else None,
-        mode="lines+markers",
-        line=dict(color="#2563eb"),
-        name="Avg Confidence",
-    ))
+            y=snapshots_df["avg_confidence"],
+            fill="tonexty" if "p10_confidence" in snapshots_df.columns else None,
+            mode="lines+markers",
+            line=dict(color="#2563eb"),
+            name="Avg Confidence",
+        )
+    )
 
     fig.update_layout(
         yaxis_tickformat=".0%",

@@ -308,6 +308,17 @@ class ReconciliationMatcher:
             date_max = txn_date + timedelta(days=tolerance_days)
 
             for bank in bank_entries:
+                # Provider payment identity must agree before fuzzy scoring.
+                if source_name.startswith("stripe-sandbox:") and (
+                    not txn.get("reference")
+                    or txn["reference"] != bank.get("reference")
+                ):
+                    continue
+                # Currency is a hard eligibility rule, never a fuzzy score.
+                if not txn.get("currency") or txn.get("currency") != bank.get(
+                    "currency"
+                ):
+                    continue
                 bank_date = bank["value_date"]
                 if isinstance(bank_date, str):
                     bank_date = date.fromisoformat(bank_date)
@@ -431,8 +442,8 @@ class ReconciliationOrchestrator:
 
     def __init__(self, db: AsyncSession, settings: Settings | None = None):
         self.db = db
-        self.settings = settings or get_settings()
-        self.matcher = ReconciliationMatcher(settings)
+        self.settings = (settings or get_settings()).model_copy()
+        self.matcher = ReconciliationMatcher(self.settings)
 
     async def run(
         self,
@@ -445,10 +456,18 @@ class ReconciliationOrchestrator:
         """Full reconciliation run for a source."""
         run_id = f"run_{uuid.uuid4().hex[:12]}_{int(time.time())}"
 
-        if confidence_threshold:
+        if confidence_threshold is not None:
             self.settings.MATCH_CONFIDENCE_THRESHOLD = confidence_threshold
-        if review_threshold:
+        if review_threshold is not None:
             self.settings.MATCH_REVIEW_THRESHOLD = review_threshold
+
+        # Serialize runs per source so concurrent callers cannot consume the same records.
+        from sqlalchemy import text
+
+        await self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:source))"),
+            {"source": source_name},
+        )
 
         # Load pending transactions
         txn_query = select(Transaction).where(
@@ -488,6 +507,7 @@ class ReconciliationOrchestrator:
                 "id": t.id,
                 "transaction_date": t.transaction_date,
                 "amount": t.amount,
+                "currency": t.currency,
                 "reference": t.reference,
                 "description": t.description,
             }
@@ -498,6 +518,7 @@ class ReconciliationOrchestrator:
                 "id": b.id,
                 "value_date": b.value_date,
                 "amount": b.amount,
+                "currency": b.currency,
                 "reference": b.reference,
                 "description": b.description,
             }
@@ -512,6 +533,7 @@ class ReconciliationOrchestrator:
 
         # Create snapshot
         await self._create_snapshot(result)
+        await self.db.flush()  # Drift analysis must see this run, not the previous one.
 
         return result
 
@@ -632,10 +654,12 @@ class ReconciliationOrchestrator:
         )
         date_deltas = [c.date_delta_days for c in all_results] if all_results else []
 
-        matched_amounts = (
-            sum(abs(float(c.amount_delta)) for c in result.matched)
-            if result.matched
-            else 0
+        matched_ids = [candidate.transaction_id for candidate in result.matched]
+        amounts = await self.db.execute(
+            select(Transaction.amount).where(Transaction.id.in_(matched_ids))
+        )
+        matched_amounts = sum(
+            (abs(amount) for amount in amounts.scalars()), Decimal("0")
         )
 
         total = result.total_transactions
@@ -674,7 +698,7 @@ class ReconciliationOrchestrator:
                 if confidences
                 else None
             ),
-            total_amount_matched=Decimal(str(round(matched_amounts, 4))),
+            total_amount_matched=matched_amounts,
             avg_amount_delta=(
                 Decimal(str(round(float(np.mean(amount_deltas)), 4)))
                 if amount_deltas

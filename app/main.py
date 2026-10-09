@@ -187,13 +187,16 @@ def create_app() -> FastAPI:
     async def health():
         db_health = await check_db_health()
         overall = "healthy" if db_health["status"] == "healthy" else "degraded"
-        return {
-            "status": overall,
-            "version": settings.APP_VERSION,
-            "environment": settings.ENVIRONMENT,
-            "checks": {"database": db_health},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return JSONResponse(
+            status_code=200 if overall == "healthy" else 503,
+            content={
+                "status": overall,
+                "version": settings.APP_VERSION,
+                "environment": settings.ENVIRONMENT,
+                "checks": {"database": db_health},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     @app.get("/", include_in_schema=False)
     async def root():

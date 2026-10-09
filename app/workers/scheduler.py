@@ -159,8 +159,26 @@ async def reconciliation_job() -> None:
 
     log.info("scheduled_reconciliation_start")
 
-    # TODO: Load active sources from DB instead of hardcoding
-    sources = ["default"]  # Replace with your actual source names
+    from sqlalchemy import select
+    from app.models import Transaction, TransactionStatus
+
+    try:
+        async with get_db_context() as db:
+            sources = list(
+                (
+                    await db.execute(
+                        select(Transaction.source)
+                        .where(
+                            Transaction.status == TransactionStatus.PENDING,
+                            Transaction.deleted_at.is_(None),
+                        )
+                        .distinct()
+                    )
+                ).scalars()
+            )
+    except Exception as e:
+        log.error("scheduled_reconciliation_source_discovery_failed", error=str(e))
+        return
 
     for source in sources:
         try:
@@ -203,7 +221,21 @@ async def drift_check_job() -> None:
     from app.services.drift_analyzer import DriftAnalyzer
 
     log.info("scheduled_drift_check_start")
-    sources = ["default"]
+    from sqlalchemy import select
+    from app.models import ReconciliationSnapshot
+
+    try:
+        async with get_db_context() as db:
+            sources = list(
+                (
+                    await db.execute(
+                        select(ReconciliationSnapshot.source_name).distinct()
+                    )
+                ).scalars()
+            )
+    except Exception as e:
+        log.error("scheduled_drift_source_discovery_failed", error=str(e))
+        return
 
     for source in sources:
         try:
