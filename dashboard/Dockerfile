@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY dashboard/requirements.txt .
-RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt \
-    && python -c "import numpy, pandas, pyarrow, streamlit"
+RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt
+RUN python -c "import numpy, pandas, pyarrow, streamlit"
 
 COPY --chown=appuser:appgroup dashboard/ .
 

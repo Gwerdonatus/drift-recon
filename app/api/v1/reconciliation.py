@@ -161,7 +161,7 @@ async def list_snapshots(
 
 @router.patch(
     "/results/{result_id}/review",
-    summary="Human review: override a match decision",
+    summary="Record an analyst verdict alongside an engine decision",
 )
 async def review_result(
     result_id: uuid.UUID,
@@ -170,9 +170,8 @@ async def review_result(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Allow a human analyst to override the engine's decision.
-    Verdict is stored alongside the original result (not replaced).
-    This data feeds future model improvement.
+    Record a caller-supplied analyst label and verdict.
+    The original engine result is retained. No model training is performed.
     """
     result = await db.get(ReconciliationResult, result_id)
     if not result:

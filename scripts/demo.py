@@ -132,7 +132,14 @@ print(
 snapshots = request(f"/api/v1/reconciliation/snapshots?source_name={source}&limit=100")
 latest = max(snapshots, key=lambda snapshot: snapshot["run_date"])
 results = request(f"/api/v1/reconciliation/results/{latest['run_id']}")
-review = next(result for result in results if result["status"] == "unmatched")
+unmatched = sorted(
+    (result for result in results if result["status"] == "unmatched"),
+    key=lambda result: result["id"],
+)
+review = next(
+    (result for result in unmatched if result["human_verdict"] == "escalated"),
+    unmatched[0],
+)
 request(
     f"/api/v1/reconciliation/results/{review['id']}/review?verdict=escalated&reviewed_by=demo-analyst",
     {},
